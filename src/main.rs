@@ -7,7 +7,7 @@ use std::{
 
 use rayon::prelude::*;
 
-const RESOLUTION: u16 = 128;
+const RESOLUTION: u16 = 1024;
 const DELTA: f64 = 1.0 / (RESOLUTION as f64);
 
 #[derive(Debug, Clone, Copy)]
@@ -97,15 +97,19 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
                     op: Add(addr1, addr2),
                 },
             ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {out: *out1, op: Const(*c)},
                 Instruction {
-                out: *out2,
-                op: if out1 == addr1 {
-                    ConstAdd(*addr2, *c)
-                } else {
-                    ConstAdd(*addr1, *c)
+                    out: *out1,
+                    op: Const(*c),
                 },
-            }],
+                Instruction {
+                    out: *out2,
+                    op: if out1 == addr1 {
+                        ConstAdd(*addr2, *c)
+                    } else {
+                        ConstAdd(*addr1, *c)
+                    },
+                },
+            ],
             [
                 Instruction {
                     out: out1,
@@ -116,15 +120,19 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
                     op: Sub(addr1, addr2),
                 },
             ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {out: *out1, op: Const(*c)},
                 Instruction {
-                out: *out2,
-                op: if out1 == addr1 {
-                    SubConst(*c, *addr2)
-                } else {
-                    ConstSub(*addr1, *c)
+                    out: *out1,
+                    op: Const(*c),
                 },
-            }],
+                Instruction {
+                    out: *out2,
+                    op: if out1 == addr1 {
+                        SubConst(*c, *addr2)
+                    } else {
+                        ConstSub(*addr1, *c)
+                    },
+                },
+            ],
             [
                 Instruction {
                     out: out1,
@@ -135,15 +143,19 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
                     op: Mul(addr1, addr2),
                 },
             ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {out: *out1, op: Const(*c)},
                 Instruction {
-                out: *out2,
-                op: if out1 == addr1 {
-                    ConstMul(*addr2, *c)
-                } else {
-                    ConstMul(*addr1, *c)
+                    out: *out1,
+                    op: Const(*c),
                 },
-            }],
+                Instruction {
+                    out: *out2,
+                    op: if out1 == addr1 {
+                        ConstMul(*addr2, *c)
+                    } else {
+                        ConstMul(*addr1, *c)
+                    },
+                },
+            ],
             _ => window.to_vec(),
         };
 
@@ -153,6 +165,50 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     optimized
 }
 
+#[allow(dead_code)]
+fn unroll(instructions: &[Instruction], index: usize) -> String {
+    use OpCode::*;
+
+    match instructions[index].op {
+        VarY => String::from("Y"),
+        VarX => String::from("X"),
+        Add(k1, k2) => format!(
+            "{} + {}",
+            unroll(instructions, k1),
+            unroll(instructions, k2)
+        ),
+        Sub(k1, k2) => format!(
+            "{} - {}",
+            unroll(instructions, k1),
+            unroll(instructions, k2)
+        ),
+        Mul(k1, k2) => format!(
+            "{} - {}",
+            unroll(instructions, k1),
+            unroll(instructions, k2)
+        ),
+        Neg(k) => format!("-{}", unroll(instructions, k)),
+        Const(cnst) => format!("{}", cnst),
+        Square(k) => format!("{}^2", unroll(instructions, k)),
+        Sqrt(k) => format!("sqrt({})", unroll(instructions, k)),
+        Max(k1, k2) => format!(
+            "max({}, {})",
+            unroll(instructions, k1),
+            unroll(instructions, k2)
+        ),
+        Min(k1, k2) => format!(
+            "min({}, {})",
+            unroll(instructions, k1),
+            unroll(instructions, k2)
+        ),
+        ConstAdd(k, v) => format!("{} + {}", unroll(instructions, k), v),
+        ConstSub(k, v) => format!("{} - {}", unroll(instructions, k), v),
+        SubConst(v, k) => format!("{} - {}", v, unroll(instructions, k)),
+        ConstMul(k, v) => format!("{} * {}", unroll(instructions, k), v),
+    }
+}
+
+#[allow(dead_code)]
 fn interpret(instructions: &[Instruction], x: f64, y: f64) -> f64 {
     use OpCode::*;
 
@@ -183,6 +239,56 @@ fn interpret(instructions: &[Instruction], x: f64, y: f64) -> f64 {
     map[instructions.len() - 1]
 }
 
+#[inline(always)]
+fn interpret_memo(instructions: &mut [Instruction], index: usize, x: f64, y: f64) -> f64 {
+    use OpCode::*;
+
+    let inst = instructions.get(index).map(|e| e.to_owned());
+    if let Some(Instruction { out, op }) = inst {
+        let value = match op {
+            VarX => x,
+            VarY => y,
+            Const(cnst) => cnst,
+            Add(k1, k2) => {
+                interpret_memo(instructions, k1, x, y) + interpret_memo(instructions, k2, x, y)
+            }
+            Sub(k1, k2) => {
+                interpret_memo(instructions, k1, x, y) - interpret_memo(instructions, k2, x, y)
+            }
+            Mul(k1, k2) => {
+                interpret_memo(instructions, k1, x, y) * interpret_memo(instructions, k2, x, y)
+            }
+            Neg(k) => interpret_memo(instructions, k, x, y).neg(),
+            Square(k) => interpret_memo(instructions, k, x, y).powi(2),
+            Sqrt(k) => interpret_memo(instructions, k, x, y).sqrt(),
+            Max(k1, k2) => {
+                interpret_memo(instructions, k1, x, y).max(interpret_memo(instructions, k2, x, y))
+            }
+            Min(k1, k2) => {
+                interpret_memo(instructions, k1, x, y).min(interpret_memo(instructions, k2, x, y))
+            }
+            ConstAdd(k, v) => interpret_memo(instructions, k, x, y) + v,
+            ConstSub(k, v) => interpret_memo(instructions, k, x, y) - v,
+            SubConst(v, k) => v - interpret_memo(instructions, k, x, y),
+            ConstMul(k, v) => interpret_memo(instructions, k, x, y) * v,
+        };
+
+        match op {
+            Const(_) => {}
+            _ => {
+                instructions[out] = Instruction {
+                    out,
+                    op: Const(value),
+                }
+            }
+        }
+
+        return value;
+    }
+
+    unreachable!("Couldn't destructure inst.");
+}
+
 fn main() {
     // Read file
     let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
@@ -191,13 +297,13 @@ fn main() {
     let opcodes: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let opcodes = optimize(&opcodes);
 
-    for op in &opcodes {
-        println!("{} - {:?}", op.out, op.op);
-    }
-
+    /*
+       for op in &opcodes {
+           println!("{} - {:?}", op.out, op.op);
+       }
+    */
 
     let shared_ops: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(opcodes));
-
 
     // Precompute matrix
     let mut values = Vec::new();
@@ -216,7 +322,12 @@ fn main() {
             values
                 .par_iter()
                 .map(|x| {
-                    let val = interpret(&ops.read().unwrap(), *x, -*y);
+                    let mut ops = ops.read().unwrap().clone();
+                    let len = ops.len();
+                    let val = interpret_memo(&mut ops, len - 1, *x, -*y);
+
+                    //let val = interpret(&ops, *x, -*y);
+
                     val.is_sign_positive()
                 })
                 .collect()
