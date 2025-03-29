@@ -1,7 +1,13 @@
-use std::{fs, ops::Neg, sync::{Arc, RwLock}, thread};
+use std::io::Write;
+use std::{
+    fs::{self, OpenOptions},
+    ops::Neg,
+    sync::{Arc, RwLock},
+    thread,
+};
 
-const RESOLUTION: f64 = 100.0;
-const DELTA: f64 = 1.0 / RESOLUTION;
+const RESOLUTION: u16 = 1000;
+const DELTA: f64 = 1.0 / (RESOLUTION as f64);
 
 #[derive(Debug, Clone, Copy)]
 enum OpCode {
@@ -26,47 +32,31 @@ impl From<&str> for OpCode {
     fn from(value: &str) -> Self {
         use OpCode::*;
 
-        let parts = value.split_ascii_whitespace().collect::<Vec<_>>();
-        let code = *parts.get(1).expect("Expected opcode to be present.");
+        let parts = value.split(" ").collect::<Vec<_>>();
+        let code = parts[1];
+        let args = &parts[2..];
 
-        let arg1 = parts.get(2).map(|e| e.trim_start_matches("_"));
+        if code == "const" {
+            let arg = args[0].parse::<f64>().unwrap();
+            return Const(arg);
+        }
 
-        let arg1u = arg1
-            .as_ref()
-            .and_then(|inner| usize::from_str_radix(inner, 16).ok());
-        let arg1f = arg1.as_ref().and_then(|inner| inner.parse::<f64>().ok());
-
-        let arg2 = parts.get(3).map(|e| e.trim_start_matches("_")).map(|e| {
-            usize::from_str_radix(e, 16).unwrap_or_else(|_| panic!("Failed to parse: {}", e))
-        });
+        let args = args
+            .iter()
+            .map(|e| usize::from_str_radix(e.trim_start_matches("_"), 16).unwrap())
+            .collect::<Vec<usize>>();
 
         match code {
             "var-y" => VarY,
             "var-x" => VarX,
-            "add" => {
-                let arg2 = arg2.expect("Expected two arguments for Add");
-                Add(arg1u.expect("Expected number argument for Add"), arg2)
-            }
-            "sub" => {
-                let arg2 = arg2.expect("Expected two arguments for Sub");
-                Sub(arg1u.expect("Expected number argument for Sub"), arg2)
-            }
-            "mul" => {
-                let arg2 = arg2.expect("Expected two arguments for Mul");
-                Mul(arg1u.expect("Expected number argument for Mul"), arg2)
-            }
-            "const" => Const(arg1f.expect("Expected float in Const.")),
-            "neg" => Neg(arg1u.expect("Expected usize for Neg.")),
-            "square" => Square(arg1u.expect("Expected usize for Square.")),
-            "sqrt" => Sqrt(arg1u.expect("Expected usize for Sqrt.")),
-            "min" => {
-                let arg2 = arg2.expect("Expected two arguments for Min");
-                Min(arg1u.expect("Expected number argument for Min"), arg2)
-            }
-            "max" => {
-                let arg2 = arg2.expect("Expected two arguments for Max");
-                Max(arg1u.expect("Expected number argument for Max"), arg2)
-            }
+            "add" => Add(args[0], args[1]),
+            "sub" => Sub(args[0], args[1]),
+            "mul" => Mul(args[0], args[1]),
+            "neg" => Neg(args[0]),
+            "square" => Square(args[0]),
+            "sqrt" => Sqrt(args[0]),
+            "min" => Min(args[0], args[1]),
+            "max" => Max(args[0], args[1]),
             _ => {
                 panic!("Unexpected code: {}", code)
             }
@@ -75,24 +65,26 @@ impl From<&str> for OpCode {
 }
 
 fn interpret(opcodes: &[OpCode], x: f64, y: f64) -> f64 {
+    use OpCode::*;
+
     let mut map: Vec<f64> = Vec::with_capacity(opcodes.len());
 
-    for (i, opcode) in opcodes.iter().enumerate() {
-        let value = match opcode {
-            OpCode::VarY => y,
-            OpCode::VarX => x,
-            OpCode::Add(k1, k2) => map[*k1] + map[*k2],
-            OpCode::Sub(k1, k2) => map[*k1] - map[*k2],
-            OpCode::Mul(k1, k2) => map[*k1] * map[*k2],
-            OpCode::Neg(k) => map[*k].neg(),
-            OpCode::Const(cnst) => *cnst,
-            OpCode::Square(k) => map[*k].powi(2),
-            OpCode::Sqrt(k) => map[*k].sqrt(),
-            OpCode::Max(k1, k2) => map[*k1].max(map[*k2]),
-            OpCode::Min(k1, k2) => map[*k1].min(map[*k2]),
+    for opcode in opcodes {
+        let value = match *opcode {
+            VarY => y,
+            VarX => x,
+            Add(k1, k2) => map[k1] + map[k2],
+            Sub(k1, k2) => map[k1] - map[k2],
+            Mul(k1, k2) => map[k1] * map[k2],
+            Neg(k) => map[k].neg(),
+            Const(cnst) => cnst,
+            Square(k) => map[k] * map[k],
+            Sqrt(k) => map[k].sqrt(),
+            Max(k1, k2) => map[k1].max(map[k2]),
+            Min(k1, k2) => map[k1].min(map[k2]),
         };
 
-        map.insert(i, value);
+        map.push(value);
     }
 
     map[opcodes.len() - 1]
@@ -115,26 +107,43 @@ fn main() {
     while y <= 1.0 {
         let opcodes = shared_ops.clone();
         threads.push(thread::spawn(move || {
-            let mut row: Vec<bool> = Vec::with_capacity(usize::from(RESOLUTION as u16) * 2);
+            let mut row: Vec<bool> = Vec::with_capacity(usize::from(RESOLUTION) * 2);
             let mut x: f64 = -1.0;
+            let opcodes = opcodes.read().unwrap();
 
             while x <= 1.0 {
-                let value = interpret(&opcodes.read().unwrap(), x, -y);
+                let value = interpret(&opcodes, x, -y);
                 row.push(value.is_sign_positive());
                 x += DELTA;
             }
 
-            ((y * RESOLUTION) as i64, row)
+            ((y * (RESOLUTION as f64)) as i64, row)
         }));
 
         y += DELTA;
     }
 
-    let mut final_rows = threads.into_iter().map(|r| r.join().unwrap()).collect::<Vec<(i64, Vec<bool>)>>();
-    final_rows.sort_by_key(|(i, _)| *i);
+    let mut final_rows = threads
+        .into_iter()
+        .map(|r| r.join().unwrap())
+        .collect::<Vec<(i64, Vec<bool>)>>();
+
+    final_rows.sort_unstable_by_key(|(i, _)| *i);
+
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./output.pbm")
+        .unwrap();
+
+    write!(output, "P1 {} {} ", RESOLUTION * 2, RESOLUTION * 2).unwrap();
 
     for (_, row) in final_rows {
-        let line = row.iter().map(|e| if *e {"."} else {"#"}).collect::<String>();
-        println!("{}", line);
+        let line = row
+            .iter()
+            .map(|e| if *e { "1" } else { "0" })
+            .collect::<Vec<_>>();
+        write!(output, "{}", line.join(" ")).unwrap();
     }
 }
