@@ -3,10 +3,11 @@ use std::{
     fs::{self, OpenOptions},
     ops::Neg,
     sync::{Arc, RwLock},
-    thread,
 };
 
-const RESOLUTION: u16 = 1000;
+use rayon::prelude::*;
+
+const RESOLUTION: u16 = 1024;
 const DELTA: f64 = 1.0 / (RESOLUTION as f64);
 
 #[derive(Debug, Clone, Copy)]
@@ -89,38 +90,38 @@ fn interpret(opcodes: &[OpCode], x: f64, y: f64) -> f64 {
 }
 
 fn main() {
+    // Read file
     let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
-    let opcodes: Vec<OpCode> = file.lines().map(|e| e.into()).collect();
+
+    // Parse opcodes
+    let opcodes: Vec<OpCode> = file.par_lines().map(|e| e.into()).collect();
     let shared_ops: Arc<RwLock<Vec<OpCode>>> = Arc::new(RwLock::new(opcodes));
-    let mut threads = Vec::new();
 
-    let mut y: f64 = -1.0;
-    while y <= 1.0 {
-        let opcodes = shared_ops.clone();
-        threads.push(thread::spawn(move || {
-            let mut row: Vec<bool> = Vec::with_capacity(usize::from(RESOLUTION) * 2);
-            let opcodes = opcodes.read().unwrap();
-
-            let mut x: f64 = -1.0;
-            while x <= 1.0 {
-                let value = interpret(&opcodes, x, -y);
-                row.push(value.is_sign_positive());
-                x += DELTA;
-            }
-
-            ((y * (RESOLUTION as f64)) as i64, row)
-        }));
-
-        y += DELTA;
+    // Precompute matrix
+    let mut values = Vec::new();
+    let mut n: f64 = -1.0;
+    while n <= 1.0 {
+        values.push(n);
+        n += DELTA;
     }
 
-    let mut final_rows = threads
-        .into_iter()
-        .map(|r| r.join().unwrap())
-        .collect::<Vec<(i64, Vec<bool>)>>();
+    // Compute pixels
+    let pixels = values
+        .clone()
+        .par_iter()
+        .map(|y| {
+            let ops = shared_ops.clone();
+            values
+                .par_iter()
+                .map(|x| {
+                    let val = interpret(&ops.read().unwrap(), *x, -*y);
+                    val.is_sign_positive()
+                })
+                .collect()
+        })
+        .collect::<Vec<Vec<bool>>>();
 
-    final_rows.sort_unstable_by_key(|(i, _)| *i);
-
+    // Write file
     let mut output = OpenOptions::new()
         .write(true)
         .create(true)
@@ -128,13 +129,13 @@ fn main() {
         .open("./output.pbm")
         .unwrap();
 
-    write!(output, "P1 {} {} ", RESOLUTION * 2, RESOLUTION * 2).unwrap();
+    write!(output, "P1 {} {} ", RESOLUTION * 2 + 1, RESOLUTION * 2).unwrap();
 
-    for (_, row) in final_rows {
+    for row in pixels {
         let line = row
-            .iter()
+            .par_iter()
             .map(|e| if *e { "1" } else { "0" })
             .collect::<Vec<_>>();
-        write!(output, "{}", line.join(" ")).unwrap();
+        writeln!(output, "{}", line.join(" ")).unwrap();
     }
 }
