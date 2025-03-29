@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fs, ops::Neg};
+use std::{fs, ops::Neg};
+
+const DELTA: f64 = 1.0 / 100.0;
 
 #[derive(Debug, Clone, Copy)]
 enum OpCode {
@@ -30,17 +32,15 @@ impl From<&str> for OpCode {
 
         let arg1u = arg1
             .as_ref()
-            .map(|inner| usize::from_str_radix(&inner, 16).ok())
-            .flatten();
+            .and_then(|inner| usize::from_str_radix(inner, 16).ok());
         let arg1f = arg1
             .as_ref()
-            .map(|inner| inner.parse::<f64>().ok())
-            .flatten();
+            .and_then(|inner| inner.parse::<f64>().ok());
 
         let arg2 = parts
             .get(3)
             .map(|e| e.trim_start_matches("_"))
-            .map(|e| usize::from_str_radix(&e, 16).expect(&format!("Failed to parse: {}", e)));
+            .map(|e| usize::from_str_radix(e, 16).unwrap_or_else(|_| panic!("Failed to parse: {}", e)));
 
         match code {
             "var-y" => VarY,
@@ -76,7 +76,7 @@ impl From<&str> for OpCode {
     }
 }
 
-fn interpret(opcodes: &Vec<OpCode>, x: f64, y: f64) -> f64 {
+fn interpret(opcodes: &[OpCode], x: f64, y: f64) -> f64 {
     let mut map: Vec<f64> = Vec::with_capacity(opcodes.len());
 
     for (i, opcode) in opcodes.iter().enumerate() {
@@ -109,7 +109,6 @@ fn main() {
         println!("{:?}", opcode);
     }
 
-    const DELTA: f64 = 1.0 / 100.0;
     let mut y: f64 = -1.0;
     let mut x: f64 = -1.0;
 
