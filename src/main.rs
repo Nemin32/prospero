@@ -8,7 +8,7 @@ use std::{
 use rayon::prelude::*;
 
 const RESOLUTION: u16 = 1024;
-const DELTA: f64 = 1.0 / (RESOLUTION as f64);
+const DELTA: f32 = 1.0 / (RESOLUTION as f32);
 
 #[derive(Debug, Clone, Copy)]
 enum OpCode {
@@ -21,17 +21,17 @@ enum OpCode {
     Mul(usize, usize),
     // Unary
     Neg(usize),
-    Const(f64),
+    Const(f32),
     Square(usize),
     Sqrt(usize),
     // Compare
     Max(usize, usize),
     Min(usize, usize),
     // Extend
-    ConstAdd(usize, f64),
-    ConstSub(usize, f64),
-    SubConst(f64, usize),
-    ConstMul(usize, f64),
+    ConstAdd(usize, f32),
+    ConstSub(usize, f32),
+    SubConst(f32, usize),
+    ConstMul(usize, f32),
 }
 
 #[derive(Clone, Copy)]
@@ -50,7 +50,7 @@ impl From<&str> for Instruction {
         let args = &parts[2..];
 
         if code == "const" {
-            let arg = args[0].parse::<f64>().unwrap();
+            let arg = args[0].parse::<f32>().unwrap();
             return Instruction {
                 out,
                 op: Const(arg),
@@ -165,6 +165,8 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     optimized
 }
 
+/// Takes in a list of instructions and generates its mathematical representation recursively.
+/// Not much point to it beyond being curious what the actual equation looks like.
 #[allow(dead_code)]
 fn unroll(instructions: &[Instruction], index: usize) -> String {
     use OpCode::*;
@@ -208,11 +210,10 @@ fn unroll(instructions: &[Instruction], index: usize) -> String {
     }
 }
 
-#[allow(dead_code)]
-fn interpret(instructions: &[Instruction], x: f64, y: f64) -> f64 {
+fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
     use OpCode::*;
 
-    let mut map: Vec<f64> = Vec::with_capacity(instructions.len());
+    let mut map: Vec<f32> = Vec::with_capacity(instructions.len());
 
     for (i, Instruction { out: _, op }) in instructions.iter().enumerate() {
         let value = match *op {
@@ -239,63 +240,13 @@ fn interpret(instructions: &[Instruction], x: f64, y: f64) -> f64 {
     map[instructions.len() - 1]
 }
 
-#[inline(always)]
-fn interpret_memo(instructions: &mut [Instruction], index: usize, x: f64, y: f64) -> f64 {
-    use OpCode::*;
-
-    let inst = instructions.get(index).map(|e| e.to_owned());
-    if let Some(Instruction { out, op }) = inst {
-        let value = match op {
-            VarX => x,
-            VarY => y,
-            Const(cnst) => cnst,
-            Add(k1, k2) => {
-                interpret_memo(instructions, k1, x, y) + interpret_memo(instructions, k2, x, y)
-            }
-            Sub(k1, k2) => {
-                interpret_memo(instructions, k1, x, y) - interpret_memo(instructions, k2, x, y)
-            }
-            Mul(k1, k2) => {
-                interpret_memo(instructions, k1, x, y) * interpret_memo(instructions, k2, x, y)
-            }
-            Neg(k) => interpret_memo(instructions, k, x, y).neg(),
-            Square(k) => interpret_memo(instructions, k, x, y).powi(2),
-            Sqrt(k) => interpret_memo(instructions, k, x, y).sqrt(),
-            Max(k1, k2) => {
-                interpret_memo(instructions, k1, x, y).max(interpret_memo(instructions, k2, x, y))
-            }
-            Min(k1, k2) => {
-                interpret_memo(instructions, k1, x, y).min(interpret_memo(instructions, k2, x, y))
-            }
-            ConstAdd(k, v) => interpret_memo(instructions, k, x, y) + v,
-            ConstSub(k, v) => interpret_memo(instructions, k, x, y) - v,
-            SubConst(v, k) => v - interpret_memo(instructions, k, x, y),
-            ConstMul(k, v) => interpret_memo(instructions, k, x, y) * v,
-        };
-
-        match op {
-            Const(_) => {}
-            _ => {
-                instructions[out] = Instruction {
-                    out,
-                    op: Const(value),
-                }
-            }
-        }
-
-        return value;
-    }
-
-    unreachable!("Couldn't destructure inst.");
-}
-
 fn main() {
     // Read file
     let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
 
     // Parse opcodes
-    let opcodes: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
-    let opcodes = optimize(&opcodes);
+    let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
+    let instructions = optimize(&instructions);
 
     /*
        for op in &opcodes {
@@ -303,11 +254,11 @@ fn main() {
        }
     */
 
-    let shared_ops: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(opcodes));
+    let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
     // Precompute matrix
     let mut values = Vec::new();
-    let mut n: f64 = -1.0;
+    let mut n: f32 = -1.0;
     while n <= 1.0 {
         values.push(n);
         n += DELTA;
@@ -318,15 +269,12 @@ fn main() {
         .clone()
         .par_iter()
         .map(|y| {
-            let ops = shared_ops.clone();
+            let insts = shared_instructions.clone();
             values
                 .par_iter()
                 .map(|x| {
-                    let mut ops = ops.read().unwrap().clone();
-                    let len = ops.len();
-                    let val = interpret_memo(&mut ops, len - 1, *x, -*y);
-
-                    //let val = interpret(&ops, *x, -*y);
+                    let insts = insts.read().unwrap();
+                    let val = interpret(&insts, *x, -*y);
 
                     val.is_sign_positive()
                 })
@@ -347,7 +295,7 @@ fn main() {
     for row in pixels {
         let line = row
             .par_iter()
-            .map(|e| if *e { "1" } else { "0" })
+            .map(|e| if *e { "0" } else { "1" })
             .collect::<Vec<_>>();
         writeln!(output, "{}", line.join(" ")).unwrap();
     }
