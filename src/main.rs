@@ -77,47 +77,27 @@ impl From<&str> for OpCode {
 }
 
 fn interpret(opcodes: &Vec<OpCode>, x: f64, y: f64) -> f64 {
-    let mut map: HashMap<usize, f64> = HashMap::new();
+    let mut map: Vec<f64> = Vec::with_capacity(opcodes.len());
 
     for (i, opcode) in opcodes.iter().enumerate() {
-        match opcode {
-            OpCode::VarY => {
-                map.insert(i, x);
-            }
-            OpCode::VarX => {
-                map.insert(i, y);
-            }
-            OpCode::Add(k1, k2) => {
-                map.insert(i, map.get(k1).unwrap() + map.get(k2).unwrap());
-            }
-            OpCode::Sub(k1, k2) => {
-                map.insert(i, map.get(k1).unwrap() - map.get(k2).unwrap());
-            }
-            OpCode::Mul(k1, k2) => {
-                map.insert(i, map.get(k1).unwrap() * map.get(k2).unwrap());
-            }
-            OpCode::Neg(k) => {
-                map.insert(i, map.get(k).unwrap().neg());
-            }
-            OpCode::Const(cnst) => {
-                map.insert(i, *cnst);
-            }
-            OpCode::Square(k) => {
-                map.insert(i, map.get(k).unwrap().powi(2));
-            }
-            OpCode::Sqrt(k) => {
-                map.insert(i, map.get(k).unwrap().sqrt());
-            }
-            OpCode::Max(k1, k2) => {
-                map.insert(i, map.get(k1).unwrap().max(*map.get(k2).unwrap()));
-            }
-            OpCode::Min(k1, k2) => {
-                map.insert(i, map.get(k1).unwrap().min(*map.get(k2).unwrap()));
-            }
-        }
+        let value = match opcode {
+            OpCode::VarY => y,
+            OpCode::VarX => x,
+            OpCode::Add(k1, k2) => map[*k1] + map[*k2],
+            OpCode::Sub(k1, k2) => map[*k1] - map[*k2],
+            OpCode::Mul(k1, k2) => map[*k1] * map[*k2],
+            OpCode::Neg(k) => map[*k].neg(),
+            OpCode::Const(cnst) => *cnst,
+            OpCode::Square(k) => map[*k].powi(2),
+            OpCode::Sqrt(k) => map[*k].sqrt(),
+            OpCode::Max(k1, k2) => map[*k1].max(map[*k2]),
+            OpCode::Min(k1, k2) => map[*k1].min(map[*k2]),
+        };
+
+        map.insert(i, value);
     }
 
-    *map.get(&(opcodes.len() - 1)).unwrap()
+    map[opcodes.len() - 1]
 }
 
 fn main() {
@@ -129,13 +109,13 @@ fn main() {
         println!("{:?}", opcode);
     }
 
-    const delta: f64 = 1.0 / 100.0;
+    const DELTA: f64 = 1.0 / 100.0;
     let mut y: f64 = -1.0;
     let mut x: f64 = -1.0;
 
     while y <= 1.0 {
         while x <= 1.0 {
-            let value = interpret(&opcodes, -y, x);
+            let value = interpret(&opcodes, x, -y);
 
             if value.is_sign_positive() {
                 print!(".");
@@ -143,11 +123,11 @@ fn main() {
                 print!("#");
             }
 
-            x += delta;
+            x += DELTA;
         }
 
         println!();
-        y += delta;
+        y += DELTA;
         x = -1.0;
     }
 }
