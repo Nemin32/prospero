@@ -113,9 +113,11 @@ fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
                 OpCode::Sqrt(value) => Sqrt(extract_other(value)),
                 OpCode::Max(value, value1) => Max(extract_other(value), extract_other(value1)),
                 OpCode::Min(value, value1) => Min(extract_other(value), extract_other(value1)),
-                OpCode::FuseMultiplyAdd(value, value1, value2) => {
-                    FuseMultiplyAdd(extract_other(value), extract_other(value1), extract_other(value2))
-                }
+                OpCode::FuseMultiplyAdd(value, value1, value2) => FuseMultiplyAdd(
+                    extract_other(value),
+                    extract_other(value1),
+                    extract_other(value2),
+                ),
             };
 
             Instruction {
@@ -126,79 +128,79 @@ fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
         .collect()
 }
 
+fn optimize_literal(instructions: &[Instruction]) -> Vec<Instruction> {
+    use OpCode::*;
+    use Value::*;
+
+    instructions
+        .iter()
+        .map(|inst| Instruction {
+            out: inst.out,
+            op: match inst.op {
+                Add(Literal(v1), Literal(v2)) => Const(v1 + v2),
+                Sub(Literal(v1), Literal(v2)) => Const(v1 - v2),
+                Mul(Literal(v1), Literal(v2)) => Const(v1 * v2),
+                Neg(Literal(c)) => Const(-c),
+                Sqrt(Literal(c)) => Const(c.sqrt()),
+                Square(Literal(c)) => Const(c * c),
+                FuseMultiplyAdd(Literal(v1), Literal(v2), Literal(v3)) => {
+                    Const(f32::mul_add(v1, v2, v3))
+                }
+                Max(Literal(v1), Literal(v2)) => Const(f32::max(v1, v2)),
+                Min(Literal(v1), Literal(v2)) => Const(f32::min(v1, v2)),
+                orig => orig,
+            },
+        })
+        .collect()
+}
+
 fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
 
-    fn extract_other(instructions: &[Instruction], other: Value) -> Value {
-        if let Address(other_addr) = other {
-            match instructions[other_addr].op {
-                Const(c) => Literal(c),
-                _ => Address(other_addr),
+    let mut new_insts: Vec<(bool, Instruction)> = Vec::with_capacity(instructions.len());
+
+    let instructions = inline_consts(instructions);
+    let instructions = optimize_literal(&instructions);
+    let instructions = inline_consts(&instructions);
+
+    for inst in instructions {
+        let (changed, op): (bool, OpCode) = match inst.op {
+            orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
+                match new_insts[addr].1.op {
+                    Neg(v) => (true, Sub(other, v)),
+                    Mul(v1, v2) => (true, FuseMultiplyAdd(v1, v2, other)),
+                    Const(c) => (true, Add(Literal(c), other)),
+                    _ => (false, orig),
+                }
             }
-        } else {
-            other
-        }
+            orig @ Mul(Address(addr), other) | orig @ Mul(other, Address(addr)) => {
+                match new_insts[addr].1.op {
+                    Const(c) => (true, Mul(Literal(c), other)),
+                    _ => (false, orig),
+                }
+            }
+            orig @ Sub(Address(addr), other) => match new_insts[addr].1.op {
+                Const(c) => (true, Sub(Literal(c), other)),
+                _ => (false, orig),
+            },
+            orig @ Sub(other, Address(addr)) => match new_insts[addr].1.op {
+                Const(c) => (true, Sub(other, Literal(c))),
+                _ => (false, orig),
+            },
+            orig @ Square(Address(addr)) => match new_insts[addr].1.op {
+                Sqrt(Literal(v)) => (true, Const(v)),
+                _ => (false, orig),
+            },
+            orig @ Sqrt(Address(addr)) => match new_insts[addr].1.op {
+                Square(Literal(v)) => (true, Const(v)),
+                _ => (false, orig),
+            },
+            _ => (false, inst.op.to_owned()),
+        };
+
+        new_insts.push((changed, Instruction { out: inst.out, op }))
     }
-
-    let new_insts = inline_consts(instructions)
-        .iter()
-        .map(|inst| {
-            let (changed, op): (bool, OpCode) = match inst.op {
-                Add(Literal(v1), Literal(v2)) => (true, Const(v1 + v2)),
-                Sub(Literal(v1), Literal(v2)) => (true, Const(v1 - v2)),
-                Mul(Literal(v1), Literal(v2)) => (true, Const(v1 * v2)),
-                Neg(Literal(c)) => (true, Const(-c)),
-                Sqrt(Literal(c)) => (true, Const(c.sqrt())),
-                Square(Literal(c)) => (true, Const(c * c)),
-                orig @ Neg(Address(addr)) => match instructions[addr].op {
-                    Const(c) => (true, Const(-c)),
-                    _ => (false, orig),
-                },
-                orig @ Sqrt(Address(addr)) => match instructions[addr].op {
-                    Const(c) => (true, Const(c.sqrt())),
-                    _ => (false, orig),
-                },
-                orig @ Square(Address(addr)) => match instructions[addr].op {
-                    Const(c) => (true, Const(c * c)),
-                    _ => (false, orig),
-                },
-                orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
-                    let other = extract_other(instructions, other);
-
-                    match instructions[addr].op {
-                        Mul(v1, v2) => (true, FuseMultiplyAdd(v1, v2, other)),
-                        Const(c) => (true, Add(Literal(c), other)),
-                        _ => (false, orig),
-                    }
-                }
-                orig @ Mul(Address(addr), other) | orig @ Mul(other, Address(addr)) => {
-                    let other = extract_other(instructions, other);
-                    match instructions[addr].op {
-                        Const(c) => (true, Mul(Literal(c), other)),
-                        _ => (false, orig),
-                    }
-                }
-                orig @ Sub(Address(addr), other) => {
-                    let other = extract_other(instructions, other);
-                    match instructions[addr].op {
-                        Const(c) => (true, Sub(Literal(c), other)),
-                        _ => (false, orig),
-                    }
-                }
-                orig @ Sub(other, Address(addr)) => {
-                    let other = extract_other(instructions, other);
-                    match instructions[addr].op {
-                        Const(c) => (true, Sub(other, Literal(c))),
-                        _ => (false, orig),
-                    }
-                }
-                _ => (false, inst.op.to_owned()),
-            };
-
-            (changed, Instruction { out: inst.out, op })
-        })
-        .collect::<Vec<(bool, Instruction)>>();
 
     let has_changed = new_insts.iter().any(|(b, _)| *b);
     let just_insts = new_insts
@@ -207,6 +209,7 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         .collect::<Vec<Instruction>>();
 
     if has_changed {
+        println!("Doing next round.");
         optimize(&just_insts)
     } else {
         just_insts.to_vec()
@@ -225,23 +228,23 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
             VarY => String::from("Y"),
             VarX => String::from("X"),
             Add(k1, k2) => format!(
-                "{} + {}",
+                "({} + {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
             ),
             Sub(k1, k2) => format!(
-                "{} - {}",
+                "({} - {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
             ),
             Mul(k1, k2) => format!(
-                "{} - {}",
+                "({} - {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
             ),
-            Neg(k) => format!("-{}", unroll(instructions, k)),
+            Neg(k) => format!("-({})", unroll(instructions, k)),
             Const(cnst) => format!("{}", cnst),
-            Square(k) => format!("{}^2", unroll(instructions, k)),
+            Square(k) => format!("({})^2", unroll(instructions, k)),
             Sqrt(k) => format!("sqrt({})", unroll(instructions, k)),
             Max(k1, k2) => format!(
                 "max({}, {})",
@@ -254,7 +257,7 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
                 unroll(instructions, k2)
             ),
             FuseMultiplyAdd(k1, k2, k3) => format!(
-                "({} * {}) + {}",
+                "({} * {}) + ({})",
                 unroll(instructions, k1),
                 unroll(instructions, k2),
                 unroll(instructions, k3)
@@ -300,6 +303,7 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
     map[instructions.len() - 1]
 }
 
+#[allow(dead_code)]
 fn interpret_memo(instructions: &mut [Instruction], index: Value, x: f32, y: f32) -> f32 {
     use OpCode::*;
 
@@ -362,8 +366,6 @@ fn main() {
     let len = instructions.len() - 1;
     println!("{}", unroll(&instructions, Value::Address(len)));
 
-    return;
-
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
     // Precompute matrix
@@ -383,11 +385,11 @@ fn main() {
             values
                 .par_iter()
                 .map(|x| {
-                    let mut insts = insts.read().unwrap().to_owned();
-                    let len = insts.len();
-                    //let val = interpret(&insts, *x, -*y);
+                    let insts = insts.read().unwrap().to_owned();
+                    //let len = insts.len();
+                    let val = interpret(&insts, *x, -*y);
 
-                    let val = interpret_memo(&mut insts, Value::Address(len - 1), *x, -*y);
+                    //let val = interpret_memo(&mut insts, Value::Address(len - 1), *x, -*y);
 
                     val.is_sign_positive()
                 })
