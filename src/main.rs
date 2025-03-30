@@ -98,49 +98,61 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         }
     }
 
-    instructions
+    let new_insts = instructions
         .iter()
         .map(|inst| {
-            let op = match inst.op {
-                Add(Literal(v1), Literal(v2)) => Const(v1 + v2),
-                Sub(Literal(v1), Literal(v2)) => Const(v1 - v2),
-                Mul(Literal(v1), Literal(v2)) => Const(v1 * v2),
+            let (changed, op): (bool, OpCode) = match inst.op {
+                Add(Literal(v1), Literal(v2)) => (true, Const(v1 + v2)),
+                Sub(Literal(v1), Literal(v2)) => (true, Const(v1 - v2)),
+                Mul(Literal(v1), Literal(v2)) => (true, Const(v1 * v2)),
                 orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
                     let other = extract_other(instructions, other);
 
                     match instructions[addr].op {
-                        Mul(v1, v2) => FuseMultiplyAdd(v1, v2, other),
-                        Const(c) => Add(Literal(c), other),
-                        _ => orig,
+                        Mul(v1, v2) => (true, FuseMultiplyAdd(v1, v2, other)),
+                        Const(c) => (true, Add(Literal(c), other)),
+                        _ => (false, orig),
                     }
                 }
                 orig @ Mul(Address(addr), other) | orig @ Mul(other, Address(addr)) => {
                     let other = extract_other(instructions, other);
                     match instructions[addr].op {
-                        Const(c) => Mul(Literal(c), other),
-                        _ => orig,
+                        Const(c) => (true, Mul(Literal(c), other)),
+                        _ => (false, orig),
                     }
                 }
                 orig @ Sub(Address(addr), other) => {
                     let other = extract_other(instructions, other);
                     match instructions[addr].op {
-                        Const(c) => Sub(Literal(c), other),
-                        _ => orig,
+                        Const(c) => (true, Sub(Literal(c), other)),
+                        _ => (false, orig),
                     }
                 }
                 orig @ Sub(other, Address(addr)) => {
                     let other = extract_other(instructions, other);
                     match instructions[addr].op {
-                        Const(c) => Sub(other, Literal(c)),
-                        _ => orig,
+                        Const(c) => (true, Sub(other, Literal(c))),
+                        _ => (false, orig),
                     }
                 }
-                _ => inst.op.to_owned(),
+                _ => (false, inst.op.to_owned()),
             };
 
-            Instruction { out: inst.out, op }
+            (changed, Instruction { out: inst.out, op })
         })
-        .collect()
+        .collect::<Vec<(bool, Instruction)>>();
+
+    let has_changed = new_insts.iter().any(|(b, _)| *b);
+    let just_insts = new_insts
+        .iter()
+        .map(|(_, i)| *i)
+        .collect::<Vec<Instruction>>();
+
+    if has_changed {
+        optimize(&just_insts)
+    } else {
+        just_insts.to_vec()
+    }
 }
 
 /// Takes in a list of instructions and generates its mathematical representation recursively.
@@ -284,7 +296,6 @@ fn main() {
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimize(&instructions);
-    //let instructions = optimize(&instructions);
 
     for op in &instructions {
         println!("{} - {:?}", op.out, op.op);
