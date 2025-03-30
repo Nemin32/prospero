@@ -87,87 +87,60 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
 
-    let mut optimized: Vec<Instruction> = Vec::with_capacity(instructions.len());
-
-    for i in (1..instructions.len()) {
-        let first = instructions.get(i);
-
-        if let Some(&Instruction {
-            out: out1,
-            op: Const(c),
-        }) = first
-        {
-            let second = window.get(1);
-            let addr = Address(out1);
-
-            dbg!(&first);
-
-            if let Some(second) = second {
-                let value = match second {
-                    &Instruction {
-                        out: out2,
-                        op: Add(addr1, addr2),
-                    } if addr == addr1 || addr == addr2 => Instruction {
-                        out: out2,
-                        op: Add(if addr == addr1 { addr2 } else { addr1 }, Literal(c)),
-                    },
-                    &Instruction {
-                        out: out2,
-                        op: Sub(addr1, addr2),
-                    } if addr == addr1 || addr == addr2 => Instruction {
-                        out: out2,
-                        op: if addr == addr1 {
-                            Sub(Literal(c), addr2)
-                        } else {
-                            Sub(addr1, Literal(c))
-                        },
-                    },
-                    &Instruction {
-                        out: out2,
-                        op: Mul(addr1, addr2),
-                    } if addr == addr1 || addr == addr2 => Instruction {
-                        out: out2,
-                        op: Mul(if addr == addr1 { addr2 } else { addr1 }, Literal(c)),
-                    },
-                    other => other.to_owned(),
-                };
-
-                optimized.push(first.unwrap().to_owned());
-                optimized.push(value);
-            } else {
-                optimized.extend_from_slice(window);
-            }
-        } else if let Some(&Instruction {
-            out: out1,
-            op: Mul(val1, val2),
-        }) = first
-        {
-            let second = window.get(1);
-            let addr = Address(out1);
-
-            if let Some(second) = second {
-                let value = match second {
-                    &Instruction {
-                        out: out2,
-                        op: Add(val3, val4),
-                    } if addr == val3 || addr == val4 => Instruction {
-                        out: out2,
-                        op: FuseMultiplyAdd(val1, val2, if addr == val3 { val4 } else { val3 }),
-                    },
-                    other => other.to_owned(),
-                };
-
-                optimized.push(first.unwrap().to_owned());
-                optimized.push(value);
-            } else {
-                optimized.extend_from_slice(window);
+    fn extract_other(instructions: &[Instruction], other: Value) -> Value {
+        if let Address(other_addr) = other {
+            match instructions[other_addr].op {
+                Const(c) => Literal(c),
+                _ => Address(other_addr),
             }
         } else {
-            optimized.extend_from_slice(window);
+            other
         }
     }
 
-    optimized
+    instructions
+        .iter()
+        .map(|inst| {
+            let op = match inst.op {
+                Add(Literal(v1), Literal(v2)) => Const(v1 + v2),
+                Sub(Literal(v1), Literal(v2)) => Const(v1 - v2),
+                Mul(Literal(v1), Literal(v2)) => Const(v1 * v2),
+                orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
+                    let other = extract_other(instructions, other);
+
+                    match instructions[addr].op {
+                        Mul(v1, v2) => FuseMultiplyAdd(v1, v2, other),
+                        Const(c) => Add(Literal(c), other),
+                        _ => orig,
+                    }
+                }
+                orig @ Mul(Address(addr), other) | orig @ Mul(other, Address(addr)) => {
+                    let other = extract_other(instructions, other);
+                    match instructions[addr].op {
+                        Const(c) => Mul(Literal(c), other),
+                        _ => orig,
+                    }
+                }
+                orig @ Sub(Address(addr), other) => {
+                    let other = extract_other(instructions, other);
+                    match instructions[addr].op {
+                        Const(c) => Sub(Literal(c), other),
+                        _ => orig,
+                    }
+                }
+                orig @ Sub(other, Address(addr)) => {
+                    let other = extract_other(instructions, other);
+                    match instructions[addr].op {
+                        Const(c) => Sub(other, Literal(c)),
+                        _ => orig,
+                    }
+                }
+                _ => inst.op.to_owned(),
+            };
+
+            Instruction { out: inst.out, op }
+        })
+        .collect()
 }
 
 /// Takes in a list of instructions and generates its mathematical representation recursively.
@@ -220,6 +193,7 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
     use OpCode::*;
 
@@ -310,6 +284,7 @@ fn main() {
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimize(&instructions);
+    //let instructions = optimize(&instructions);
 
     for op in &instructions {
         println!("{} - {:?}", op.out, op.op);
@@ -338,7 +313,7 @@ fn main() {
                     let len = insts.len();
                     //let val = interpret(&insts, *x, -*y);
 
-                    let val = interpret_memo(&mut insts, Value::Address(len-1), *x, -*y);
+                    let val = interpret_memo(&mut insts, Value::Address(len - 1), *x, -*y);
 
                     val.is_sign_positive()
                 })
