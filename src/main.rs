@@ -16,6 +16,21 @@ enum Value {
     Literal(f32),
 }
 
+impl Value {
+    fn extract_literal(self, instructions: &[Instruction]) -> Value {
+        use Value::*;
+
+        if let Address(addr) = self {
+            match instructions[addr].op {
+                OpCode::Const(c) => Literal(c),
+                _ => self,
+            }
+        } else {
+            self
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum OpCode {
     // Variables
@@ -108,117 +123,89 @@ impl Instruction {
     }
 }
 
-fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
+fn inline_consts(instructions: &[Instruction]) -> impl Iterator<Item = Instruction> {
     use OpCode::*;
-    use Value::*;
 
-    let extract_other = |other: Value| -> Value {
-        if let Address(other_addr) = other {
-            match instructions[other_addr].op {
-                Const(c) => Literal(c),
-                _ => Address(other_addr),
+    instructions.iter().map(|inst| {
+        let extract = |other: Value| -> Value { other.extract_literal(instructions) };
+        let new_op = match inst.op {
+            OpCode::VarY => VarY,
+            OpCode::VarX => VarX,
+            OpCode::Add(value, value1) => Add(extract(value), extract(value1)),
+            OpCode::Sub(value, value1) => Sub(extract(value), extract(value1)),
+            OpCode::Mul(value, value1) => Mul(extract(value), extract(value1)),
+            OpCode::Neg(value) => Neg(extract(value)),
+            OpCode::Const(val) => Const(val),
+            OpCode::Square(value) => Square(extract(value)),
+            OpCode::Sqrt(value) => Sqrt(extract(value)),
+            OpCode::Max(value, value1) => Max(extract(value), extract(value1)),
+            OpCode::Min(value, value1) => Min(extract(value), extract(value1)),
+            OpCode::FuseMultiplyAdd(value, value1, value2) => {
+                FuseMultiplyAdd(extract(value), extract(value1), extract(value2))
             }
-        } else {
-            other
+        };
+
+        Instruction {
+            out: inst.out,
+            op: new_op,
         }
-    };
-
-    instructions
-        .iter()
-        .map(|inst| {
-            let new_op = match inst.op {
-                OpCode::VarY => VarY,
-                OpCode::VarX => VarX,
-                OpCode::Add(value, value1) => Add(extract_other(value), extract_other(value1)),
-                OpCode::Sub(value, value1) => Sub(extract_other(value), extract_other(value1)),
-                OpCode::Mul(value, value1) => Mul(extract_other(value), extract_other(value1)),
-                OpCode::Neg(value) => Neg(extract_other(value)),
-                OpCode::Const(val) => Const(val),
-                OpCode::Square(value) => Square(extract_other(value)),
-                OpCode::Sqrt(value) => Sqrt(extract_other(value)),
-                OpCode::Max(value, value1) => Max(extract_other(value), extract_other(value1)),
-                OpCode::Min(value, value1) => Min(extract_other(value), extract_other(value1)),
-                OpCode::FuseMultiplyAdd(value, value1, value2) => FuseMultiplyAdd(
-                    extract_other(value),
-                    extract_other(value1),
-                    extract_other(value2),
-                ),
-            };
-
-            Instruction {
-                out: inst.out,
-                op: new_op,
-            }
-        })
-        .collect()
-}
-
-fn optimize_literal(instructions: &[Instruction]) -> Vec<Instruction> {
-    instructions
-        .iter()
-        .map(|inst| inst.inline_literal())
-        .collect()
+    })
 }
 
 fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
 
-    let mut new_insts: Vec<(bool, Instruction)> = Vec::with_capacity(instructions.len());
+    let mut new_insts: Vec<Instruction> = Vec::with_capacity(instructions.len());
 
-    let instructions = inline_consts(instructions);
-    let instructions = optimize_literal(&instructions);
-    let instructions = inline_consts(&instructions);
+    let instructions = inline_consts(instructions).map(|inst| inst.inline_literal());
+
+    let mut changed = false;
 
     for inst in instructions {
-        let (changed, op): (bool, OpCode) = match inst.op {
-            orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
-                match new_insts[addr].1.op {
-                    Neg(v) => (true, Sub(other, v)),
-                    Mul(v1, v2) => (true, FuseMultiplyAdd(v1, v2, other)),
-                    Const(c) => (true, Add(Literal(c), other)),
-                    _ => (false, orig),
-                }
-            }
-            orig @ Mul(Address(addr), other) | orig @ Mul(other, Address(addr)) => {
-                match new_insts[addr].1.op {
-                    Const(c) => (true, Mul(Literal(c), other)),
-                    _ => (false, orig),
-                }
-            }
-            orig @ Sub(Address(addr), other) => match new_insts[addr].1.op {
-                Const(c) => (true, Sub(Literal(c), other)),
-                _ => (false, orig),
+        let op: Option<OpCode> = match inst.op {
+            Add(Address(addr), other) | Add(other, Address(addr)) => match new_insts[addr].op {
+                Neg(v) => Some(Sub(other, v)),
+                Mul(v1, v2) => Some(FuseMultiplyAdd(v1, v2, other)),
+                Const(c) => Some(Add(Literal(c), other)),
+                _ => None,
             },
-            orig @ Sub(other, Address(addr)) => match new_insts[addr].1.op {
-                Const(c) => (true, Sub(other, Literal(c))),
-                _ => (false, orig),
+            Mul(Address(addr), other) | Mul(other, Address(addr)) => match new_insts[addr].op {
+                Const(c) => Some(Mul(Literal(c), other)),
+                _ => None,
             },
-            orig @ Square(Address(addr)) => match new_insts[addr].1.op {
-                Sqrt(Literal(v)) => (true, Const(v)),
-                _ => (false, orig),
+            Sub(Address(addr), other) => match new_insts[addr].op {
+                Const(c) => Some(Sub(Literal(c), other)),
+                _ => None,
             },
-            orig @ Sqrt(Address(addr)) => match new_insts[addr].1.op {
-                Square(Literal(v)) => (true, Const(v)),
-                _ => (false, orig),
+            Sub(other, Address(addr)) => match new_insts[addr].op {
+                Const(c) => Some(Sub(other, Literal(c))),
+                _ => None,
             },
-            _ => (false, inst.op.to_owned()),
+            Square(Address(addr)) => match new_insts[addr].op {
+                Sqrt(Literal(v)) => Some(Const(v)),
+                _ => None,
+            },
+            Sqrt(Address(addr)) => match new_insts[addr].op {
+                Square(Literal(v)) => Some(Const(v)),
+                _ => None,
+            },
+            _ => None,
         };
 
-        new_insts.push((changed, Instruction { out: inst.out, op }))
+        changed = changed || op.is_some();
+
+        new_insts.push(Instruction {
+            out: inst.out,
+            op: op.unwrap_or(inst.op),
+        })
     }
 
-    let has_changed = new_insts.iter().any(|(b, _)| *b);
-    let just_insts = new_insts
-        .iter()
-        .map(|(_, i)| *i)
-        .collect::<Vec<Instruction>>();
-
-    if has_changed {
+    if changed {
         println!("Doing next round.");
-        optimize(&just_insts)
+        optimize(&new_insts)
     } else {
-        just_insts.to_vec()
+        new_insts
     }
 }
 
