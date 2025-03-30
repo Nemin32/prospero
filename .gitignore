@@ -1,2 +1,3 @@
 /target
-output.pbm
+output.*
+log
