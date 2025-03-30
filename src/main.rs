@@ -7,7 +7,7 @@ use std::{
 
 use rayon::prelude::*;
 
-const RESOLUTION: u16 = 128;
+const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -83,6 +83,49 @@ impl From<&str> for Instruction {
     }
 }
 
+fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
+    use OpCode::*;
+    use Value::*;
+
+    let extract_other = |other: Value| -> Value {
+        if let Address(other_addr) = other {
+            match instructions[other_addr].op {
+                Const(c) => Literal(c),
+                _ => Address(other_addr),
+            }
+        } else {
+            other
+        }
+    };
+
+    instructions
+        .iter()
+        .map(|inst| {
+            let new_op = match inst.op {
+                OpCode::VarY => VarY,
+                OpCode::VarX => VarX,
+                OpCode::Add(value, value1) => Add(extract_other(value), extract_other(value1)),
+                OpCode::Sub(value, value1) => Sub(extract_other(value), extract_other(value1)),
+                OpCode::Mul(value, value1) => Mul(extract_other(value), extract_other(value1)),
+                OpCode::Neg(value) => Neg(extract_other(value)),
+                OpCode::Const(val) => Const(val),
+                OpCode::Square(value) => Square(extract_other(value)),
+                OpCode::Sqrt(value) => Sqrt(extract_other(value)),
+                OpCode::Max(value, value1) => Max(extract_other(value), extract_other(value1)),
+                OpCode::Min(value, value1) => Min(extract_other(value), extract_other(value1)),
+                OpCode::FuseMultiplyAdd(value, value1, value2) => {
+                    FuseMultiplyAdd(extract_other(value), extract_other(value1), extract_other(value2))
+                }
+            };
+
+            Instruction {
+                out: inst.out,
+                op: new_op,
+            }
+        })
+        .collect()
+}
+
 fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
@@ -98,13 +141,28 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         }
     }
 
-    let new_insts = instructions
+    let new_insts = inline_consts(instructions)
         .iter()
         .map(|inst| {
             let (changed, op): (bool, OpCode) = match inst.op {
                 Add(Literal(v1), Literal(v2)) => (true, Const(v1 + v2)),
                 Sub(Literal(v1), Literal(v2)) => (true, Const(v1 - v2)),
                 Mul(Literal(v1), Literal(v2)) => (true, Const(v1 * v2)),
+                Neg(Literal(c)) => (true, Const(-c)),
+                Sqrt(Literal(c)) => (true, Const(c.sqrt())),
+                Square(Literal(c)) => (true, Const(c * c)),
+                orig @ Neg(Address(addr)) => match instructions[addr].op {
+                    Const(c) => (true, Const(-c)),
+                    _ => (false, orig),
+                },
+                orig @ Sqrt(Address(addr)) => match instructions[addr].op {
+                    Const(c) => (true, Const(c.sqrt())),
+                    _ => (false, orig),
+                },
+                orig @ Square(Address(addr)) => match instructions[addr].op {
+                    Const(c) => (true, Const(c * c)),
+                    _ => (false, orig),
+                },
                 orig @ Add(Address(addr), other) | orig @ Add(other, Address(addr)) => {
                     let other = extract_other(instructions, other);
 
@@ -300,6 +358,11 @@ fn main() {
     for op in &instructions {
         println!("{} - {:?}", op.out, op.op);
     }
+
+    let len = instructions.len() - 1;
+    println!("{}", unroll(&instructions, Value::Address(len)));
+
+    return;
 
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
