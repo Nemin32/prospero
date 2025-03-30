@@ -7,8 +7,14 @@ use std::{
 
 use rayon::prelude::*;
 
-const RESOLUTION: u16 = 128;
+const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Value {
+    Address(usize),
+    Literal(f32),
+}
 
 #[derive(Debug, Clone, Copy)]
 enum OpCode {
@@ -16,22 +22,19 @@ enum OpCode {
     VarY,
     VarX,
     // Arithm.
-    Add(usize, usize),
-    Sub(usize, usize),
-    Mul(usize, usize),
+    Add(Value, Value),
+    Sub(Value, Value),
+    Mul(Value, Value),
     // Unary
-    Neg(usize),
+    Neg(Value),
     Const(f32),
-    Square(usize),
-    Sqrt(usize),
+    Square(Value),
+    Sqrt(Value),
     // Compare
-    Max(usize, usize),
-    Min(usize, usize),
-    // Extend
-    ConstAdd(usize, f32),
-    ConstSub(usize, f32),
-    SubConst(f32, usize),
-    ConstMul(usize, f32),
+    Max(Value, Value),
+    Min(Value, Value),
+    //Extend
+    FuseMultiplyAdd(Value, Value, Value),
 }
 
 #[derive(Clone, Copy)]
@@ -59,8 +62,8 @@ impl From<&str> for Instruction {
 
         let args = args
             .iter()
-            .map(|e| usize::from_str_radix(e.trim_start_matches("_"), 16).unwrap())
-            .collect::<Vec<usize>>();
+            .map(|e| Value::Address(usize::from_str_radix(e.trim_start_matches("_"), 16).unwrap()))
+            .collect::<Vec<Value>>();
 
         let op = match code {
             "var-y" => VarY,
@@ -82,6 +85,7 @@ impl From<&str> for Instruction {
 
 fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
+    use Value::*;
 
     let mut optimized: Vec<Instruction> = Vec::new();
 
@@ -94,33 +98,59 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         }) = first
         {
             let second = window.get(1);
+            let addr = Address(out1);
 
             if let Some(second) = second {
                 let value = match second {
                     &Instruction {
                         out: out2,
                         op: Add(addr1, addr2),
-                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                    } if addr == addr1 || addr == addr2 => Instruction {
                         out: out2,
-                        op: ConstAdd(if out1 == addr1 { addr2 } else { addr1 }, c),
+                        op: Add(if addr == addr1 { addr2 } else { addr1 }, Literal(c)),
                     },
                     &Instruction {
                         out: out2,
                         op: Sub(addr1, addr2),
-                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                    } if addr == addr1 || addr == addr2 => Instruction {
                         out: out2,
-                        op: if out1 == addr1 {
-                            SubConst(c, addr2)
+                        op: if addr == addr1 {
+                            Sub(Literal(c), addr2)
                         } else {
-                            ConstSub(addr1, c)
+                            Sub(addr1, Literal(c))
                         },
                     },
                     &Instruction {
                         out: out2,
                         op: Mul(addr1, addr2),
-                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                    } if addr == addr1 || addr == addr2 => Instruction {
                         out: out2,
-                        op: ConstMul(if out1 == addr1 { addr2 } else { addr1 }, c),
+                        op: Mul(if addr == addr1 { addr2 } else { addr1 }, Literal(c)),
+                    },
+                    other => other.to_owned(),
+                };
+
+                optimized.push(first.unwrap().to_owned());
+                optimized.push(value);
+            } else {
+                optimized.extend_from_slice(window);
+            }
+        } else if let Some(&Instruction {
+            out: out1,
+            op: Mul(val1, val2),
+        }) = first
+        {
+            let second = window.get(1);
+            let addr = Address(out1);
+
+            if let Some(second) = second {
+                let value = match second {
+                    &Instruction {
+                        out: out2,
+                        op: Add(val3, val4),
+                    } if addr == val3 || addr == val4 => Instruction {
+                        out: out2,
+                        op: FuseMultiplyAdd(val1, val2, if addr == val3 { val4 } else { val3 }),
                     },
                     other => other.to_owned(),
                 };
@@ -141,45 +171,50 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
 /// Takes in a list of instructions and generates its mathematical representation recursively.
 /// Not much point to it beyond being curious what the actual equation looks like.
 #[allow(dead_code)]
-fn unroll(instructions: &[Instruction], index: usize) -> String {
+fn unroll(instructions: &[Instruction], index: Value) -> String {
     use OpCode::*;
 
-    match instructions[index].op {
-        VarY => String::from("Y"),
-        VarX => String::from("X"),
-        Add(k1, k2) => format!(
-            "{} + {}",
-            unroll(instructions, k1),
-            unroll(instructions, k2)
-        ),
-        Sub(k1, k2) => format!(
-            "{} - {}",
-            unroll(instructions, k1),
-            unroll(instructions, k2)
-        ),
-        Mul(k1, k2) => format!(
-            "{} - {}",
-            unroll(instructions, k1),
-            unroll(instructions, k2)
-        ),
-        Neg(k) => format!("-{}", unroll(instructions, k)),
-        Const(cnst) => format!("{}", cnst),
-        Square(k) => format!("{}^2", unroll(instructions, k)),
-        Sqrt(k) => format!("sqrt({})", unroll(instructions, k)),
-        Max(k1, k2) => format!(
-            "max({}, {})",
-            unroll(instructions, k1),
-            unroll(instructions, k2)
-        ),
-        Min(k1, k2) => format!(
-            "min({}, {})",
-            unroll(instructions, k1),
-            unroll(instructions, k2)
-        ),
-        ConstAdd(k, v) => format!("{} + {}", unroll(instructions, k), v),
-        ConstSub(k, v) => format!("{} - {}", unroll(instructions, k), v),
-        SubConst(v, k) => format!("{} - {}", v, unroll(instructions, k)),
-        ConstMul(k, v) => format!("{} * {}", unroll(instructions, k), v),
+    match index {
+        Value::Literal(lit) => format!("{}", lit),
+        Value::Address(addr) => match instructions[addr].op {
+            VarY => String::from("Y"),
+            VarX => String::from("X"),
+            Add(k1, k2) => format!(
+                "{} + {}",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            Sub(k1, k2) => format!(
+                "{} - {}",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            Mul(k1, k2) => format!(
+                "{} - {}",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            Neg(k) => format!("-{}", unroll(instructions, k)),
+            Const(cnst) => format!("{}", cnst),
+            Square(k) => format!("{}^2", unroll(instructions, k)),
+            Sqrt(k) => format!("sqrt({})", unroll(instructions, k)),
+            Max(k1, k2) => format!(
+                "max({}, {})",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            Min(k1, k2) => format!(
+                "min({}, {})",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            FuseMultiplyAdd(k1, k2, k3) => format!(
+                "({} * {}) + {}",
+                unroll(instructions, k1),
+                unroll(instructions, k2),
+                unroll(instructions, k3)
+            ),
+        },
     }
 }
 
@@ -188,23 +223,29 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
 
     let mut map: Vec<f32> = Vec::with_capacity(instructions.len());
 
+    fn extract(map: &[f32], key: Value) -> f32 {
+        match key {
+            Value::Address(addr) => map[addr],
+            Value::Literal(lit) => lit,
+        }
+    }
+
     for (i, Instruction { out: _, op }) in instructions.iter().enumerate() {
         let value = match *op {
             VarY => y,
             VarX => x,
-            Add(k1, k2) => map[k1] + map[k2],
-            Sub(k1, k2) => map[k1] - map[k2],
-            Mul(k1, k2) => map[k1] * map[k2],
-            Neg(k) => map[k].neg(),
+            Add(k1, k2) => extract(&map, k1) + extract(&map, k2),
+            Sub(k1, k2) => extract(&map, k1) - extract(&map, k2),
+            Mul(k1, k2) => extract(&map, k1) * extract(&map, k2),
+            Neg(k) => extract(&map, k).neg(),
             Const(cnst) => cnst,
-            Square(k) => map[k] * map[k],
-            Sqrt(k) => map[k].sqrt(),
-            Max(k1, k2) => map[k1].max(map[k2]),
-            Min(k1, k2) => map[k1].min(map[k2]),
-            ConstAdd(k, v) => map[k] + v,
-            ConstSub(k, v) => map[k] - v,
-            SubConst(v, k) => v - map[k],
-            ConstMul(k, v) => map[k] * v,
+            Square(k) => extract(&map, k).powi(2),
+            Sqrt(k) => extract(&map, k).sqrt(),
+            Max(k1, k2) => f32::max(extract(&map, k1), extract(&map, k2)),
+            Min(k1, k2) => f32::min(extract(&map, k1), extract(&map, k2)),
+            FuseMultiplyAdd(k1, k2, k3) => {
+                f32::mul_add(extract(&map, k1), extract(&map, k2), extract(&map, k3))
+            }
         };
 
         map.insert(i, value);
@@ -221,9 +262,9 @@ fn main() {
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimize(&instructions);
 
-       for op in &instructions {
-           println!("{} - {:?}", op.out, op.op);
-       }
+    for op in &instructions {
+        println!("{} - {:?}", op.out, op.op);
+    }
 
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
