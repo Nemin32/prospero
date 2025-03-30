@@ -7,7 +7,7 @@ use std::{
 
 use rayon::prelude::*;
 
-const RESOLUTION: u16 = 1024;
+const RESOLUTION: u16 = 128;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
 
 #[derive(Debug, Clone, Copy)]
@@ -86,80 +86,53 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     let mut optimized: Vec<Instruction> = Vec::new();
 
     for window in instructions.chunks(2) {
-        let value = match window {
-            [
-                Instruction {
-                    out: out1,
-                    op: Const(c),
-                },
-                Instruction {
-                    out: out2,
-                    op: Add(addr1, addr2),
-                },
-            ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {
-                    out: *out1,
-                    op: Const(*c),
-                },
-                Instruction {
-                    out: *out2,
-                    op: if out1 == addr1 {
-                        ConstAdd(*addr2, *c)
-                    } else {
-                        ConstAdd(*addr1, *c)
-                    },
-                },
-            ],
-            [
-                Instruction {
-                    out: out1,
-                    op: Const(c),
-                },
-                Instruction {
-                    out: out2,
-                    op: Sub(addr1, addr2),
-                },
-            ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {
-                    out: *out1,
-                    op: Const(*c),
-                },
-                Instruction {
-                    out: *out2,
-                    op: if out1 == addr1 {
-                        SubConst(*c, *addr2)
-                    } else {
-                        ConstSub(*addr1, *c)
-                    },
-                },
-            ],
-            [
-                Instruction {
-                    out: out1,
-                    op: Const(c),
-                },
-                Instruction {
-                    out: out2,
-                    op: Mul(addr1, addr2),
-                },
-            ] if out1 == addr1 || out1 == addr2 => vec![
-                Instruction {
-                    out: *out1,
-                    op: Const(*c),
-                },
-                Instruction {
-                    out: *out2,
-                    op: if out1 == addr1 {
-                        ConstMul(*addr2, *c)
-                    } else {
-                        ConstMul(*addr1, *c)
-                    },
-                },
-            ],
-            _ => window.to_vec(),
-        };
+        let first = window.first();
 
-        optimized.extend(value);
+        if let Some(&Instruction {
+            out: out1,
+            op: Const(c),
+        }) = first
+        {
+            let second = window.get(1);
+
+            if let Some(second) = second {
+                let value = match second {
+                    &Instruction {
+                        out: out2,
+                        op: Add(addr1, addr2),
+                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                        out: out2,
+                        op: ConstAdd(if out1 == addr1 { addr2 } else { addr1 }, c),
+                    },
+                    &Instruction {
+                        out: out2,
+                        op: Sub(addr1, addr2),
+                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                        out: out2,
+                        op: if out1 == addr1 {
+                            SubConst(c, addr2)
+                        } else {
+                            ConstSub(addr1, c)
+                        },
+                    },
+                    &Instruction {
+                        out: out2,
+                        op: Mul(addr1, addr2),
+                    } if out1 == addr1 || out1 == addr2 => Instruction {
+                        out: out2,
+                        op: ConstMul(if out1 == addr1 { addr2 } else { addr1 }, c),
+                    },
+                    other => other.to_owned(),
+                };
+
+                optimized.push(first.unwrap().to_owned());
+                optimized.push(value);
+            } else {
+                optimized.extend_from_slice(window);
+            }
+        } else {
+            optimized.extend_from_slice(window);
+        }
     }
 
     optimized
@@ -248,11 +221,9 @@ fn main() {
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimize(&instructions);
 
-    /*
-       for op in &opcodes {
+       for op in &instructions {
            println!("{} - {:?}", op.out, op.op);
        }
-    */
 
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
