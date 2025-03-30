@@ -7,7 +7,7 @@ use std::{
 
 use rayon::prelude::*;
 
-const RESOLUTION: u16 = 1024;
+const RESOLUTION: u16 = 128;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -37,7 +37,7 @@ enum OpCode {
     FuseMultiplyAdd(Value, Value, Value),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Instruction {
     out: usize,
     op: OpCode,
@@ -87,10 +87,10 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
 
-    let mut optimized: Vec<Instruction> = Vec::new();
+    let mut optimized: Vec<Instruction> = Vec::with_capacity(instructions.len());
 
-    for window in instructions.chunks(2) {
-        let first = window.first();
+    for i in (1..instructions.len()) {
+        let first = instructions.get(i);
 
         if let Some(&Instruction {
             out: out1,
@@ -99,6 +99,8 @@ fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         {
             let second = window.get(1);
             let addr = Address(out1);
+
+            dbg!(&first);
 
             if let Some(second) = second {
                 let value = match second {
@@ -254,6 +256,53 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
     map[instructions.len() - 1]
 }
 
+fn interpret_memo(instructions: &mut [Instruction], index: Value, x: f32, y: f32) -> f32 {
+    use OpCode::*;
+
+    match index {
+        Value::Literal(lit) => lit,
+        Value::Address(addr) => {
+            let value = match instructions[addr].op {
+                VarX => x,
+                VarY => y,
+                Const(c) => c,
+                Add(v1, v2) => {
+                    interpret_memo(instructions, v1, x, y) + interpret_memo(instructions, v2, x, y)
+                }
+                Sub(v1, v2) => {
+                    interpret_memo(instructions, v1, x, y) - interpret_memo(instructions, v2, x, y)
+                }
+                Mul(v1, v2) => {
+                    interpret_memo(instructions, v1, x, y) * interpret_memo(instructions, v2, x, y)
+                }
+                Neg(v) => interpret_memo(instructions, v, x, y).neg(),
+                Square(v) => interpret_memo(instructions, v, x, y).powi(2),
+                Sqrt(v) => interpret_memo(instructions, v, x, y).sqrt(),
+                Max(v1, v2) => f32::max(
+                    interpret_memo(instructions, v1, x, y),
+                    interpret_memo(instructions, v2, x, y),
+                ),
+                Min(v1, v2) => f32::min(
+                    interpret_memo(instructions, v1, x, y),
+                    interpret_memo(instructions, v2, x, y),
+                ),
+                FuseMultiplyAdd(v1, v2, v3) => f32::mul_add(
+                    interpret_memo(instructions, v1, x, y),
+                    interpret_memo(instructions, v2, x, y),
+                    interpret_memo(instructions, v3, x, y),
+                ),
+            };
+
+            instructions[addr] = Instruction {
+                out: instructions[addr].out,
+                op: Const(value),
+            };
+
+            value
+        }
+    }
+}
+
 fn main() {
     // Read file
     let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
@@ -285,8 +334,11 @@ fn main() {
             values
                 .par_iter()
                 .map(|x| {
-                    let insts = insts.read().unwrap();
-                    let val = interpret(&insts, *x, -*y);
+                    let mut insts = insts.read().unwrap().to_owned();
+                    let len = insts.len();
+                    //let val = interpret(&insts, *x, -*y);
+
+                    let val = interpret_memo(&mut insts, Value::Address(len-1), *x, -*y);
 
                     val.is_sign_positive()
                 })
