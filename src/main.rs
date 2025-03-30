@@ -83,6 +83,31 @@ impl From<&str> for Instruction {
     }
 }
 
+impl Instruction {
+    fn inline_literal(self) -> Self {
+        use OpCode::*;
+        use Value::*;
+
+        Instruction {
+            out: self.out,
+            op: match self.op {
+                Add(Literal(v1), Literal(v2)) => Const(v1 + v2),
+                Sub(Literal(v1), Literal(v2)) => Const(v1 - v2),
+                Mul(Literal(v1), Literal(v2)) => Const(v1 * v2),
+                Neg(Literal(c)) => Const(-c),
+                Sqrt(Literal(c)) => Const(c.sqrt()),
+                Square(Literal(c)) => Const(c * c),
+                FuseMultiplyAdd(Literal(v1), Literal(v2), Literal(v3)) => {
+                    Const(f32::mul_add(v1, v2, v3))
+                }
+                Max(Literal(v1), Literal(v2)) => Const(f32::max(v1, v2)),
+                Min(Literal(v1), Literal(v2)) => Const(f32::min(v1, v2)),
+                orig => orig,
+            },
+        }
+    }
+}
+
 fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
     use OpCode::*;
     use Value::*;
@@ -129,28 +154,9 @@ fn inline_consts(instructions: &[Instruction]) -> Vec<Instruction> {
 }
 
 fn optimize_literal(instructions: &[Instruction]) -> Vec<Instruction> {
-    use OpCode::*;
-    use Value::*;
-
     instructions
         .iter()
-        .map(|inst| Instruction {
-            out: inst.out,
-            op: match inst.op {
-                Add(Literal(v1), Literal(v2)) => Const(v1 + v2),
-                Sub(Literal(v1), Literal(v2)) => Const(v1 - v2),
-                Mul(Literal(v1), Literal(v2)) => Const(v1 * v2),
-                Neg(Literal(c)) => Const(-c),
-                Sqrt(Literal(c)) => Const(c.sqrt()),
-                Square(Literal(c)) => Const(c * c),
-                FuseMultiplyAdd(Literal(v1), Literal(v2), Literal(v3)) => {
-                    Const(f32::mul_add(v1, v2, v3))
-                }
-                Max(Literal(v1), Literal(v2)) => Const(f32::max(v1, v2)),
-                Min(Literal(v1), Literal(v2)) => Const(f32::min(v1, v2)),
-                orig => orig,
-            },
-        })
+        .map(|inst| inst.inline_literal())
         .collect()
 }
 
