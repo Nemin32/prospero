@@ -1,3 +1,5 @@
+use std::iter;
+
 use crate::{opcode::Value, *};
 
 #[derive(Debug, Clone, Copy)]
@@ -69,4 +71,61 @@ impl Instruction {
             },
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct Liveness {
+    pub defined: usize,
+    pub last_used: usize
+}
+
+pub fn generate_liveness(insts: &[Instruction]) -> Vec<Liveness> {
+    let len = insts.len();
+    let mut last_used_list = iter::repeat(None).take(len).collect::<Vec<Option<usize>>>();
+
+    insts.iter().rev().enumerate().for_each(|(i, elem)| {
+        let mut push_value = |val: Value| {
+            match val {
+                Value::Address(addr) => {if let None = last_used_list[addr] {last_used_list[addr]= Some(len - i - 1);} },
+                Value::Literal(_) => {},
+            };
+        };
+
+        match elem.op {
+            OpCode::Add(value, value1) => {
+                push_value(value);
+                push_value(value1);
+            }
+            OpCode::Sub(value, value1) => {
+                push_value(value);
+                push_value(value1);
+            }
+            OpCode::Mul(value, value1) => {
+                push_value(value);
+                push_value(value1);
+            }
+            OpCode::Square(value) => {
+                push_value(value);
+            }
+            OpCode::Sqrt(value) => {
+                push_value(value);
+            }
+            OpCode::Max(value, value1) => {
+                push_value(value);
+                push_value(value1);
+            }
+            OpCode::Min(value, value1) => {
+                push_value(value);
+                push_value(value1);
+            }
+            OpCode::FuseMultiplyAdd(value, value1, value2) => {
+                push_value(value);
+                push_value(value1);
+                push_value(value2);
+            }
+            _ => {},
+        };
+    });
+
+    last_used_list.iter().enumerate().map(|(i, elem)| Liveness {defined: i, last_used: elem.unwrap_or(i)}).collect()
 }

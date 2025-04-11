@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use instruction::Instruction;
+use instruction::{generate_liveness, Instruction};
 use opcode::{OpCode, Value};
 use rayon::prelude::*;
 
@@ -59,7 +59,20 @@ fn main() {
 
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
+
+
+    let livenesses = generate_liveness(&instructions);
+
+    livenesses.iter().enumerate().for_each(|(i, liveness)| {
+        print!("{:0>3} {:0>3} {:0>3} ", i, liveness.defined, liveness.last_used);
+        print!("{}", str::repeat(" ", liveness.defined));
+        println!("{}", str::repeat("*", (liveness.last_used + 1) - liveness.defined));
+    });
+
+    return;
+
     let instructions = optimizers::optimize(&instructions);
+
 
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
