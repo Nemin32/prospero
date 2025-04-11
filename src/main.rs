@@ -53,54 +53,6 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
     map[instructions.len() - 1]
 }
 
-#[allow(dead_code)]
-fn interpret_memo(instructions: &mut [Instruction], index: Value, x: f32, y: f32) -> f32 {
-    use OpCode::*;
-
-    match index {
-        Value::Literal(lit) => lit,
-        Value::Address(addr) => {
-            let value = match instructions[addr].op {
-                VarX => x,
-                VarY => y,
-                Const(c) => c,
-                Add(v1, v2) => {
-                    interpret_memo(instructions, v1, x, y) + interpret_memo(instructions, v2, x, y)
-                }
-                Sub(v1, v2) => {
-                    interpret_memo(instructions, v1, x, y) - interpret_memo(instructions, v2, x, y)
-                }
-                Mul(v1, v2) => {
-                    interpret_memo(instructions, v1, x, y) * interpret_memo(instructions, v2, x, y)
-                }
-                Neg(v) => interpret_memo(instructions, v, x, y).neg(),
-                Square(v) => interpret_memo(instructions, v, x, y).powi(2),
-                Sqrt(v) => interpret_memo(instructions, v, x, y).sqrt(),
-                Max(v1, v2) => f32::max(
-                    interpret_memo(instructions, v1, x, y),
-                    interpret_memo(instructions, v2, x, y),
-                ),
-                Min(v1, v2) => f32::min(
-                    interpret_memo(instructions, v1, x, y),
-                    interpret_memo(instructions, v2, x, y),
-                ),
-                FuseMultiplyAdd(v1, v2, v3) => f32::mul_add(
-                    interpret_memo(instructions, v1, x, y),
-                    interpret_memo(instructions, v2, x, y),
-                    interpret_memo(instructions, v3, x, y),
-                ),
-            };
-
-            instructions[addr] = Instruction {
-                out: instructions[addr].out,
-                op: Const(value),
-            };
-
-            value
-        }
-    }
-}
-
 fn main() {
     // Read file
     let file = fs::read_to_string("./test.vm").expect("File to be present.");
