@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use instruction::{generate_liveness, Instruction};
+use instruction::{Instruction, generate_liveness, generate_register_mapping};
 use opcode::{OpCode, Value};
-use rayon::prelude::*;
+use rayon::{iter, prelude::*};
 
 mod instruction;
 mod opcode;
@@ -16,11 +16,10 @@ mod optimizers;
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
 
-#[allow(dead_code)]
-fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
+fn interpret(instructions: &[Instruction], len: usize, x: f32, y: f32) -> f32 {
     use OpCode::*;
 
-    let mut map: Vec<f32> = Vec::with_capacity(instructions.len());
+    let mut map: Vec<f32> = iter::repeat(0f32).take(len + 1).collect();
 
     fn extract(map: &[f32], key: Value) -> f32 {
         match key {
@@ -29,7 +28,7 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
         }
     }
 
-    for (i, Instruction { out: _, op }) in instructions.iter().enumerate() {
+    for (i, Instruction { out, op }) in instructions.iter().enumerate() {
         let value = match *op {
             VarY => y,
             VarX => x,
@@ -47,31 +46,52 @@ fn interpret(instructions: &[Instruction], x: f32, y: f32) -> f32 {
             }
         };
 
-        map.insert(i, value);
+        map[*out] = value;
     }
 
-    map[instructions.len() - 1]
+    map[0]
 }
 
 fn main() {
     // Read file
-    let file = fs::read_to_string("./test.vm").expect("File to be present.");
+    let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
 
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
-
+    //let instructions = optimizers::optimize(&instructions);
 
     let livenesses = generate_liveness(&instructions);
 
-    livenesses.iter().enumerate().for_each(|(i, liveness)| {
-        print!("{:0>3} {:0>3} {:0>3} ", i, liveness.defined, liveness.last_used);
-        print!("{}", str::repeat(" ", liveness.defined));
-        println!("{}", str::repeat("*", (liveness.last_used + 1) - liveness.defined));
-    });
+    if false {
+        livenesses.iter().enumerate().for_each(|(i, liveness)| {
+            print!(
+                "{:0>3} {:0>3} {:0>3} ",
+                i, liveness.defined, liveness.last_used
+            );
+            print!("{}", str::repeat(" ", liveness.defined));
+            println!(
+                "{}",
+                str::repeat("*", (liveness.last_used + 1) - liveness.defined)
+            );
+        });
+    }
+
+    let (instructions, len) = generate_register_mapping(&instructions, &livenesses);
+
+    println!("Len: {}", len);
+
+
+    //let len = instructions.len();
+
+    if true {
+        for elem in &instructions {
+            println!("{}", elem);
+        }
+    }
 
     return;
 
-    let instructions = optimizers::optimize(&instructions);
+    //let len = 0;
 
 
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
@@ -96,7 +116,7 @@ fn main() {
                 .map(|x| {
                     let insts = insts.clone();
                     //let len = insts.len();
-                    let val = interpret(&insts.read().unwrap(), *x, -*y);
+                    let val = interpret(&insts.read().unwrap(), len, *x, -*y);
 
                     //let val = interpret_memo(&mut insts, Value::Address(len - 1), *x, -*y);
 
