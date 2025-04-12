@@ -6,13 +6,14 @@ use std::{
 };
 
 use instruction::{Instruction, generate_liveness, generate_register_mapping};
+use interval::{Interval, IntervalSign, Quadtree, interpret_interal};
 use opcode::{OpCode, Value};
 use rayon::{iter, prelude::*};
 
 mod instruction;
+mod interval;
 mod opcode;
 mod optimizers;
-mod interval;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
@@ -50,48 +51,7 @@ fn interpret(instructions: &[Instruction], len: usize, x: f32, y: f32) -> f32 {
     map[0]
 }
 
-fn main() {
-    // Read file
-    let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
-
-    // Parse opcodes
-    let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
-    //let instructions = optimizers::optimize(&instructions);
-
-    let livenesses = generate_liveness(&instructions);
-
-    if false {
-        livenesses.iter().enumerate().for_each(|(i, liveness)| {
-            print!(
-                "{:0>3} {:0>3} {:0>3} ",
-                i, liveness.defined, liveness.last_used
-            );
-            print!("{}", str::repeat(" ", liveness.defined));
-            println!(
-                "{}",
-                str::repeat("*", (liveness.last_used + 1) - liveness.defined)
-            );
-        });
-    }
-
-    let (instructions, len) = generate_register_mapping(&instructions, &livenesses);
-
-    println!("Len: {}", len);
-
-
-    //let len = instructions.len();
-
-    if true {
-        for elem in &instructions {
-            println!("{}", elem);
-        }
-    }
-
-    return;
-
-    //let len = 0;
-
-
+fn rayon_process(instructions: Vec<Instruction>, len: usize) -> Vec<Vec<bool>> {
     let shared_instructions: Arc<RwLock<Vec<Instruction>>> = Arc::new(RwLock::new(instructions));
 
     // Precompute matrix
@@ -113,10 +73,7 @@ fn main() {
                 .par_iter()
                 .map(|x| {
                     let insts = insts.clone();
-                    //let len = insts.len();
                     let val = interpret(&insts.read().unwrap(), len, *x, -*y);
-
-                    //let val = interpret_memo(&mut insts, Value::Address(len - 1), *x, -*y);
 
                     val.is_sign_positive()
                 })
@@ -124,7 +81,10 @@ fn main() {
         })
         .collect::<Vec<Vec<bool>>>();
 
-    // Write file
+    pixels
+}
+
+fn write_image_bool(pixels: Vec<Vec<bool>>) {
     let mut output = OpenOptions::new()
         .write(true)
         .create(true)
@@ -141,4 +101,93 @@ fn main() {
             .collect::<Vec<_>>();
         writeln!(output, "{}", line.join(" ")).unwrap();
     }
+}
+
+fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./output.pgm")
+        .unwrap();
+
+    write!(output, "P2 {} {} 2 ", RESOLUTION, RESOLUTION).unwrap();
+
+    for row in pixels {
+        let line = row
+            .par_iter()
+            .map(|e| match *e {
+                IntervalSign::Positive => "2",
+                IntervalSign::Negative => "0",
+                IntervalSign::Indeterminate => "1",
+            })
+            .collect::<Vec<_>>();
+        writeln!(output, "{}", line.join(" ")).unwrap();
+    }
+}
+
+fn main() {
+    // Read file
+    let file = fs::read_to_string("./test.vm").expect("File to be present.");
+
+    // Parse opcodes
+    let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
+    //let instructions = optimizers::optimize(&instructions);
+
+    let livenesses = generate_liveness(&instructions);
+
+    if false {
+        livenesses.iter().enumerate().for_each(|(i, liveness)| {
+            print!(
+                "{:0>3} {:0>3} {:0>3} ",
+                i, liveness.defined, liveness.last_used
+            );
+            print!("{}", str::repeat(" ", liveness.defined));
+            println!(
+                "{}",
+                str::repeat("*", (liveness.last_used + 1) - liveness.defined)
+            );
+        });
+    }
+
+    //let (instructions, len) = generate_register_mapping(&instructions, &livenesses);
+
+    //println!("Len: {}", len);
+
+    //let len = instructions.len();
+
+    if true {
+        for elem in &instructions {
+            println!("{}", elem);
+        }
+    }
+
+    let x = Interval {
+        start: 1.0,
+        end: 1.5,
+    };
+
+    let y = Interval {
+        start: 0.5,
+        end: 1.0,
+    };
+
+    let end = interpret_interal(&instructions, x, y);
+    let sign: IntervalSign = end.into();
+
+    println!("{:?}", sign);
+
+    let mut buffer =
+        vec![vec![IntervalSign::Indeterminate; RESOLUTION as usize]; RESOLUTION as usize];
+
+    let qt = Quadtree::new(x, y);
+
+    println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
+
+    qt.blit(&instructions, 1.5, &mut buffer);
+
+    write_image_sign(buffer);
+
+    //let pixels = rayon_process(instructions, len);
+    //write_image(pixels);
 }
