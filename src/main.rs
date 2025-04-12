@@ -42,9 +42,6 @@ fn interpret(instructions: &[Instruction], len: usize, x: f32, y: f32) -> f32 {
             Sqrt(k) => extract(&map, k).sqrt(),
             Max(k1, k2) => f32::max(extract(&map, k1), extract(&map, k2)),
             Min(k1, k2) => f32::min(extract(&map, k1), extract(&map, k2)),
-            FuseMultiplyAdd(k1, k2, k3) => {
-                f32::mul_add(extract(&map, k1), extract(&map, k2), extract(&map, k3))
-            }
         };
 
         map[*out] = value;

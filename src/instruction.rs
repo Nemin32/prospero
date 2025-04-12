@@ -62,9 +62,6 @@ impl Instruction {
                 Neg(Literal(c)) => Const(-c),
                 Sqrt(Literal(c)) => Const(c.sqrt()),
                 Square(Literal(c)) => Const(c * c),
-                FuseMultiplyAdd(Literal(v1), Literal(v2), Literal(v3)) => {
-                    Const(f32::mul_add(v1, v2, v3))
-                }
                 Max(Literal(v1), Literal(v2)) => Const(f32::max(v1, v2)),
                 Min(Literal(v1), Literal(v2)) => Const(f32::min(v1, v2)),
                 orig => orig,
@@ -133,11 +130,6 @@ pub fn generate_liveness(insts: &[Instruction]) -> Vec<Liveness> {
             OpCode::Min(value, value1) => {
                 push_value(value);
                 push_value(value1);
-            }
-            OpCode::FuseMultiplyAdd(value, value1, value2) => {
-                push_value(value);
-                push_value(value1);
-                push_value(value2);
             }
             _ => {}
         };
@@ -244,11 +236,6 @@ pub fn generate_register_mapping(
                 Sqrt(value) => Sqrt(add_registers(value)),
                 Max(value, value1) => Max(add_registers(value), add_registers(value1)),
                 Min(value, value1) => Min(add_registers(value), add_registers(value1)),
-                FuseMultiplyAdd(value, value1, value2) => FuseMultiplyAdd(
-                    add_registers(value),
-                    add_registers(value1),
-                    add_registers(value2),
-                ),
                 other => other,
             };
 

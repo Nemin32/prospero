@@ -49,8 +49,6 @@ pub enum OpCode {
     // Compare
     Max(Value, Value),
     Min(Value, Value),
-    //Extend
-    FuseMultiplyAdd(Value, Value, Value),
 }
 
 impl Display for OpCode {
@@ -67,7 +65,6 @@ impl Display for OpCode {
             OpCode::Sqrt(value) => format!("SQROOT {}", value),
             OpCode::Max(value, value1) => format!("MAX {} {}", value, value1),
             OpCode::Min(value, value1) => format!("MIN {} {}", value, value1),
-            OpCode::FuseMultiplyAdd(value, value1, value2) => format!("FMA {} {} {}", value, value1, value2),
         };
 
         write!(f, "{}", text)

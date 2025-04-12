@@ -19,9 +19,6 @@ fn inline_consts(instructions: &[Instruction]) -> impl Iterator<Item = Instructi
             OpCode::Sqrt(value) => Sqrt(extract(value)),
             OpCode::Max(value, value1) => Max(extract(value), extract(value1)),
             OpCode::Min(value, value1) => Min(extract(value), extract(value1)),
-            OpCode::FuseMultiplyAdd(value, value1, value2) => {
-                FuseMultiplyAdd(extract(value), extract(value1), extract(value2))
-            }
         };
 
         Instruction {
@@ -45,7 +42,6 @@ pub fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
         let op: Option<OpCode> = match inst.op {
             Add(Address(addr), other) | Add(other, Address(addr)) => match new_insts[addr].op {
                 Neg(v) => Some(Sub(other, v)),
-                Mul(v1, v2) => Some(FuseMultiplyAdd(v1, v2, other)),
                 Const(c) => Some(Add(Literal(c), other)),
                 _ => None,
             },
@@ -127,12 +123,6 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
                 "min({}, {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
-            ),
-            FuseMultiplyAdd(k1, k2, k3) => format!(
-                "({} * {}) + ({})",
-                unroll(instructions, k1),
-                unroll(instructions, k2),
-                unroll(instructions, k3)
             ),
         },
     }
