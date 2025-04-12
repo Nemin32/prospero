@@ -1,5 +1,8 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
+use crate::{instruction::Instruction, opcode::{OpCode, Value}};
+
+#[derive(Clone, Copy, Debug)]
 struct Interval {
     start: f32,
     end: f32,
@@ -75,4 +78,42 @@ impl Interval {
             end: f32::max(self.end, rhs.end),
         }
     }
+
+    pub fn neg(self) -> Self {
+        Interval { start: self.start.neg(), end: self.end.neg() }
+    }
+}
+
+
+pub fn interpret_interal(insts: &[Instruction], x: Interval, y: Interval) -> Interval {
+    use OpCode::*;
+
+    let mut map: Vec<Interval> = Vec::with_capacity(insts.len());
+
+    fn extract(map: &[Interval], key: Value) -> Interval {
+        match key {
+            Value::Address(addr) => map[addr],
+            Value::Literal(lit) => Interval { start: lit, end: lit },
+        }
+    }
+
+    for (i, Instruction { out, op }) in insts.iter().enumerate() {
+        let value = match *op {
+            VarY => y,
+            VarX => x,
+            Add(k1, k2) => extract(&map, k1) + extract(&map, k2),
+            Sub(k1, k2) => extract(&map, k1) - extract(&map, k2),
+            Mul(k1, k2) => extract(&map, k1) * extract(&map, k2),
+            Neg(k) => extract(&map, k).neg(),
+            Const(cnst) => Interval { start: cnst, end: cnst },
+            Square(k) => {let val = extract(&map, k); val*val},
+            Sqrt(k) => extract(&map, k).sqrt(),
+            Max(k1, k2) => Interval::max(extract(&map, k1), extract(&map, k2)),
+            Min(k1, k2) => Interval::min(extract(&map, k1), extract(&map, k2)),
+        };
+
+        map[*out] = value;
+    }
+
+    *map.last().unwrap()
 }
