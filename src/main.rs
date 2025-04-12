@@ -12,6 +12,7 @@ use rayon::{iter, prelude::*};
 mod instruction;
 mod opcode;
 mod optimizers;
+mod interval;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
