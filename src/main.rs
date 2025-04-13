@@ -5,8 +5,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use instruction::Instruction;
-use interval::{Interval, IntervalSign, Quadtree, interpret_interval};
+use instruction::{generate_register_mapping, Instruction};
+use interval::{Interval, IntervalSign, Quadtree};
 use opcode::{OpCode, Value};
 use rayon::{iter, prelude::*};
 
@@ -148,18 +148,18 @@ fn main() {
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimizers::optimize(&instructions);
-
-    //let (instructions, len) = generate_register_mapping(&instructions, &livenesses);
+    let (instructions, len) = generate_register_mapping(&instructions);
 
     //println!("Len: {}", len);
 
     //let len = instructions.len();
 
-    if false {
+    if true {
         for elem in &instructions {
             println!("{}", elem);
         }
     }
+
 
     let max_interval = 1.5f32;
 
@@ -177,24 +177,16 @@ fn main() {
         vec![vec![IntervalSign::Indeterminate; RESOLUTION as usize]; RESOLUTION as usize];
 
     let mut qt = Quadtree::new(x, y);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
-    qt.split(&instructions);
+
+    for _ in 0..12 {
+        qt.split(&instructions, len);
+    }
 
     // println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
 
-    qt.blit(&instructions, 1.5, &mut buffer);
+    qt.blit(&instructions, len, 1.5, &mut buffer);
     finalize(&instructions, &mut buffer, max_interval);
-    // qt.draw_borders(1.5, &mut buffer);
+    //qt.draw_borders(1.5, &mut buffer);
 
     write_image_sign(buffer);
 

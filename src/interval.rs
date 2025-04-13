@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::{iter, ops::{Add, Div, Mul, Neg, Sub}};
 
 use crate::{
     instruction::Instruction,
@@ -52,6 +52,11 @@ impl Div for Interval {
 }
 
 impl Interval {
+    const EMPTY: Self = Self {
+        start: 0.0,
+        end: 0.0,
+    };
+
     pub fn new(start: f32, end: f32) -> Interval {
         assert!(start <= end, "{} - {}", start, end);
         Interval { start, end }
@@ -116,11 +121,11 @@ impl From<Interval> for IntervalSign {
 
 impl From<f32> for IntervalSign {
     fn from(value: f32) -> Self {
-        if value >= 0.0 {
+        if value.is_sign_positive() {
             return IntervalSign::Positive;
         }
 
-        if value < 0.0 {
+        if value.is_sign_negative() {
             return IntervalSign::Negative;
         }
 
@@ -161,9 +166,9 @@ impl Quadtree {
         }
     }
 
-    pub fn split(&mut self, insts: &[Instruction]) {
+    pub fn split(&mut self, insts: &[Instruction], len: usize) {
         if self.sign.is_none() {
-            self.sign = Some(self.get_sign(insts));
+            self.sign = Some(self.get_sign(insts, len));
         }
 
         // If we're already certain of this quadrant's sign, no need to split.
@@ -181,10 +186,10 @@ impl Quadtree {
                 bl: Some(bl),
                 br: Some(br),
             } => {
-                tl.split(insts);
-                tr.split(insts);
-                bl.split(insts);
-                br.split(insts);
+                tl.split(insts, len);
+                tr.split(insts, len);
+                bl.split(insts, len);
+                br.split(insts, len);
             }
             _ => {
                 let xhalf = (self.x.end - self.x.start) / 2.0;
@@ -203,9 +208,9 @@ impl Quadtree {
         }
     }
 
-    pub fn get_sign(&self, insts: &[Instruction]) -> IntervalSign {
+    pub fn get_sign(&self, insts: &[Instruction], len: usize) -> IntervalSign {
         self.sign
-            .unwrap_or_else(|| interpret_interval(insts, self.x, self.y).into())
+            .unwrap_or_else(|| interpret_interval(insts, len, self.x, self.y).into())
     }
 
     pub fn rectangle_size(&self, max_inteval: f32, pic_width: usize) -> Rectangle {
@@ -263,6 +268,7 @@ impl Quadtree {
     pub fn blit(
         &self,
         insts: &[Instruction],
+        len: usize,
         max_inteval: f32,
         buffer: &mut Vec<Vec<IntervalSign>>,
     ) {
@@ -276,13 +282,13 @@ impl Quadtree {
                 bl: Some(bl),
                 br: Some(br),
             } => {
-                tl.blit(insts, max_inteval, buffer);
-                tr.blit(insts, max_inteval, buffer);
-                bl.blit(insts, max_inteval, buffer);
-                br.blit(insts, max_inteval, buffer);
+                tl.blit(insts, len, max_inteval, buffer);
+                tr.blit(insts, len, max_inteval, buffer);
+                bl.blit(insts, len, max_inteval, buffer);
+                br.blit(insts, len, max_inteval, buffer);
             }
             _ => {
-                let sign = self.get_sign(insts);
+                let sign = self.get_sign(insts, len);
                 let rect = self.rectangle_size(max_inteval, buffer.len());
 
                 buffer
@@ -300,10 +306,10 @@ impl Quadtree {
     }
 }
 
-pub fn interpret_interval(insts: &[Instruction], x: Interval, y: Interval) -> Interval {
+pub fn interpret_interval(insts: &[Instruction], len: usize, x: Interval, y: Interval) -> Interval {
     use OpCode::*;
 
-    let mut map: Vec<Interval> = Vec::with_capacity(insts.len());
+    let mut map: Vec<Interval> = iter::repeat(Interval::EMPTY).take(len).collect();
 
     fn extract(map: &[Interval], key: Value) -> Interval {
         match key {
@@ -312,7 +318,7 @@ pub fn interpret_interval(insts: &[Instruction], x: Interval, y: Interval) -> In
         }
     }
 
-    for Instruction { out: _, op } in insts {
+    for Instruction { out, op } in insts {
         let value = match *op {
             VarY => y,
             VarX => x,
@@ -330,8 +336,8 @@ pub fn interpret_interval(insts: &[Instruction], x: Interval, y: Interval) -> In
             Min(k1, k2) => Interval::min(extract(&map, k1), extract(&map, k2)),
         };
 
-        map.push(value);
+        map[*out] = value;
     }
 
-    *map.last().unwrap()
+    *map.first().unwrap()
 }
