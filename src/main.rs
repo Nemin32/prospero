@@ -111,15 +111,16 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
         .open("./output.pgm")
         .unwrap();
 
-    write!(output, "P2 {} {} 2 ", RESOLUTION, RESOLUTION).unwrap();
+    write!(output, "P2 {} {} 3 ", RESOLUTION, RESOLUTION).unwrap();
 
-    for row in pixels {
+    for row in pixels.iter().rev() {
         let line = row
             .par_iter()
             .map(|e| match *e {
-                IntervalSign::Positive => "2",
-                IntervalSign::Negative => "0",
-                IntervalSign::Indeterminate => "1",
+                IntervalSign::Border => "0",
+                IntervalSign::Negative => "1",
+                IntervalSign::Indeterminate => "2",
+                IntervalSign::Positive => "3",
             })
             .collect::<Vec<_>>();
         writeln!(output, "{}", line.join(" ")).unwrap();
@@ -128,11 +129,11 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
 
 fn main() {
     // Read file
-    let file = fs::read_to_string("./test.vm").expect("File to be present.");
+    let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
 
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
-    //let instructions = optimizers::optimize(&instructions);
+    let instructions = optimizers::optimize(&instructions);
 
     let livenesses = generate_liveness(&instructions);
 
@@ -156,35 +157,43 @@ fn main() {
 
     //let len = instructions.len();
 
-    if true {
+    if false {
         for elem in &instructions {
             println!("{}", elem);
         }
     }
 
     let x = Interval {
-        start: 1.0,
+        start: -1.5,
         end: 1.5,
     };
 
     let y = Interval {
-        start: 0.5,
-        end: 1.0,
+        start: -1.5,
+        end: 1.5,
     };
-
-    let end = interpret_interal(&instructions, x, y);
-    let sign: IntervalSign = end.into();
-
-    println!("{:?}", sign);
 
     let mut buffer =
         vec![vec![IntervalSign::Indeterminate; RESOLUTION as usize]; RESOLUTION as usize];
 
-    let qt = Quadtree::new(x, y);
+    let mut qt = Quadtree::new(x, y);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
+    qt.split(&instructions);
 
-    println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
+
+    // println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
 
     qt.blit(&instructions, 1.5, &mut buffer);
+    qt.draw_borders(1.5, &mut buffer);
 
     write_image_sign(buffer);
 
