@@ -6,10 +6,12 @@ use std::{
 };
 
 use instruction::{generate_register_mapping, Instruction};
-use interval::{Interval, IntervalSign, Quadtree};
+use interval::{Interval, IntervalSign};
+use quadtree::Quadtree;
 use opcode::{OpCode, Value};
 use rayon::{iter, prelude::*};
 
+mod quadtree;
 mod instruction;
 mod interval;
 mod opcode;
