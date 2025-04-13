@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use instruction::{Instruction, generate_liveness, generate_register_mapping};
+use instruction::Instruction;
 use interval::{Interval, IntervalSign, Quadtree, interpret_interval};
 use opcode::{OpCode, Value};
 use rayon::{iter, prelude::*};
@@ -148,22 +148,6 @@ fn main() {
     // Parse opcodes
     let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimizers::optimize(&instructions);
-
-    let livenesses = generate_liveness(&instructions);
-
-    if false {
-        livenesses.iter().enumerate().for_each(|(i, liveness)| {
-            print!(
-                "{:0>3} {:0>3} {:0>3} ",
-                i, liveness.defined, liveness.last_used
-            );
-            print!("{}", str::repeat(" ", liveness.defined));
-            println!(
-                "{}",
-                str::repeat("*", (liveness.last_used + 1) - liveness.defined)
-            );
-        });
-    }
 
     //let (instructions, len) = generate_register_mapping(&instructions, &livenesses);
 
