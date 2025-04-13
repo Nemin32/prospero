@@ -15,10 +15,7 @@ impl Add for Interval {
     type Output = Interval;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Interval {
-            start: self.start + rhs.start,
-            end: self.end + rhs.end,
-        }
+        Self::new(self.start + rhs.start, self.end + rhs.end)
     }
 }
 
@@ -26,10 +23,7 @@ impl Sub for Interval {
     type Output = Interval;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Interval {
-            start: self.start - rhs.end,
-            end: self.end - rhs.start,
-        }
+        Self::new(self.start - rhs.end, self.end - rhs.start)
     }
 }
 
@@ -42,10 +36,10 @@ impl Mul for Interval {
         let es = self.end * rhs.start;
         let ee = self.end * rhs.end;
 
-        Interval {
-            start: f32::min(f32::min(ss, se), f32::min(es, ee)),
-            end: f32::max(f32::max(ss, se), f32::max(es, ee)),
-        }
+        let start = f32::min(f32::min(ss, se), f32::min(es, ee));
+        let end = f32::max(f32::max(ss, se), f32::max(es, ee));
+
+        Self::new(start, end)
     }
 }
 
@@ -53,48 +47,49 @@ impl Div for Interval {
     type Output = Interval;
 
     fn div(self, rhs: Self) -> Self::Output {
-        self.mul(Interval {
-            start: rhs.end.recip(),
-            end: rhs.start.recip(),
-        })
+        self.mul(Self::new(rhs.end.recip(), rhs.start.recip()))
     }
 }
 
 impl Interval {
+    pub fn new(start: f32, end: f32) -> Interval {
+        assert!(start <= end, "{} - {}", start, end);
+        Interval { start, end }
+    }
+
     pub fn sqrt(self) -> Self {
-        Interval {
-            start: self.start.sqrt(),
-            end: self.end.sqrt(),
-        }
+        // Since we can't square root negatives, we assume the interval must be greater or equal to zero.
+        let start = if self.start >= 0.0 {self.start.sqrt()} else {0.0};
+        let end = if self.end >= 0.0 {self.end.sqrt()} else {0.0};
+
+        Self::new(start, end)
     }
 
     pub fn min(self, rhs: Self) -> Self {
-        Interval {
-            start: f32::min(self.start, rhs.start),
-            end: f32::min(self.end, rhs.end),
-        }
+        Self::new(f32::min(self.start, rhs.start), f32::min(self.end, rhs.end))
     }
 
     pub fn max(self, rhs: Self) -> Self {
-        Interval {
-            start: f32::max(self.start, rhs.start),
-            end: f32::max(self.end, rhs.end),
-        }
+        Self::new(f32::max(self.start, rhs.start), f32::max(self.end, rhs.end))
     }
 
     pub fn neg(self) -> Self {
-        Interval {
-            start: self.start.neg(),
-            end: self.end.neg(),
-        }
+        Self::new(self.end.neg(), self.start.neg())
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl From<f32> for Interval {
+    fn from(value: f32) -> Self {
+        Interval::new(value, value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IntervalSign {
     Positive,
     Negative,
     Indeterminate,
+    Border,
 }
 
 impl From<Interval> for IntervalSign {
@@ -115,6 +110,7 @@ impl From<Interval> for IntervalSign {
 pub struct Quadtree {
     x: Interval,
     y: Interval,
+    sign: Option<IntervalSign>,
 
     tl: Option<Box<Quadtree>>,
     tr: Option<Box<Quadtree>>,
@@ -135,6 +131,7 @@ impl Quadtree {
         Quadtree {
             x,
             y,
+            sign: None,
             tl: None,
             tr: None,
             bl: None,
@@ -142,38 +139,51 @@ impl Quadtree {
         }
     }
 
-    pub fn split(&mut self) {
-        let xhalf = (self.x.end - self.x.start) / 2.0;
-        let yhalf = (self.y.end - self.y.start) / 2.0;
+    pub fn split(&mut self, insts: &[Instruction]) {
+        if self.sign.is_none() {
+            self.sign = Some(self.get_sign(insts));
+        }
 
-        let top_y = Interval {
-            start: self.y.start,
-            end: self.y.start + yhalf,
-        };
+        // If we're already certain of this quadrant's sign, no need to split.
+        if self.sign != Some(IntervalSign::Indeterminate) {
+            return;
+        }
 
-        let bottom_y = Interval {
-            start: self.y.start + yhalf,
-            end: self.y.end,
-        };
+        match self {
+            Quadtree {
+                x: _,
+                y: _,
+                sign: _,
+                tl: Some(tl),
+                tr: Some(tr),
+                bl: Some(bl),
+                br: Some(br),
+            } => {
+                tl.split(insts);
+                tr.split(insts);
+                bl.split(insts);
+                br.split(insts);
+            }
+            _ => {
+                let xhalf = (self.x.end - self.x.start) / 2.0;
+                let yhalf = (self.y.end - self.y.start) / 2.0;
 
-        let left_x = Interval {
-            start: self.x.start,
-            end: self.x.start + xhalf,
-        };
+                let top_y = Interval::new(self.y.start, self.y.start + yhalf);
+                let bottom_y = Interval::new(self.y.start + yhalf, self.y.end);
+                let left_x = Interval::new(self.x.start, self.x.start + xhalf);
+                let right_x = Interval::new(self.x.start + xhalf, self.x.end);
 
-        let right_x = Interval {
-            start: self.x.start + xhalf,
-            end: self.x.end,
-        };
-
-        self.tl = Some(Box::new(Quadtree::new(left_x, top_y)));
-        self.tr = Some(Box::new(Quadtree::new(right_x, top_y)));
-        self.bl = Some(Box::new(Quadtree::new(left_x, bottom_y)));
-        self.br = Some(Box::new(Quadtree::new(right_x, bottom_y)));
+                self.tl = Some(Box::new(Quadtree::new(left_x, top_y)));
+                self.tr = Some(Box::new(Quadtree::new(right_x, top_y)));
+                self.bl = Some(Box::new(Quadtree::new(left_x, bottom_y)));
+                self.br = Some(Box::new(Quadtree::new(right_x, bottom_y)));
+            }
+        }
     }
 
     pub fn get_sign(&self, insts: &[Instruction]) -> IntervalSign {
-        interpret_interal(insts, self.x, self.y).into()
+        self.sign
+            .unwrap_or_else(|| interpret_interal(insts, self.x, self.y).into())
     }
 
     pub fn rectangle_size(&self, max_inteval: f32, pic_width: usize) -> Rectangle {
@@ -195,6 +205,40 @@ impl Quadtree {
         }
     }
 
+    pub fn draw_borders(&self, max_inteval: f32, buffer: &mut Vec<Vec<IntervalSign>>) {
+        match self {
+            Quadtree {
+                x: _,
+                y: _,
+                sign: _,
+                tl: Some(tl),
+                tr: Some(tr),
+                bl: Some(bl),
+                br: Some(br),
+            } => {
+                tl.draw_borders( max_inteval, buffer);
+                tr.draw_borders( max_inteval, buffer);
+                bl.draw_borders( max_inteval, buffer);
+                br.draw_borders( max_inteval, buffer);
+            }
+            _ => {
+                let rect = self.rectangle_size(max_inteval, buffer.len());
+                let len = buffer.len() - 1;
+
+                for y in rect.y.max(0)..rect.height.min(len) {
+                    buffer[y][rect.x.min(len)] = IntervalSign::Border;
+                    buffer[y][rect.width.min(len)] = IntervalSign::Border;
+                }
+
+                for x in rect.x.max(0)..rect.width.min(len) {
+                    buffer[rect.y.min(len)][x] = IntervalSign::Border;
+                    buffer[rect.height.min(len)][x] = IntervalSign::Border;
+                }
+
+            }
+        }
+    }
+
     pub fn blit(
         &self,
         insts: &[Instruction],
@@ -205,6 +249,7 @@ impl Quadtree {
             Quadtree {
                 x: _,
                 y: _,
+                sign: _,
                 tl: Some(tl),
                 tr: Some(tr),
                 bl: Some(bl),
@@ -242,10 +287,7 @@ pub fn interpret_interal(insts: &[Instruction], x: Interval, y: Interval) -> Int
     fn extract(map: &[Interval], key: Value) -> Interval {
         match key {
             Value::Address(addr) => map[addr],
-            Value::Literal(lit) => Interval {
-                start: lit,
-                end: lit,
-            },
+            Value::Literal(lit) => lit.into(),
         }
     }
 
@@ -257,10 +299,7 @@ pub fn interpret_interal(insts: &[Instruction], x: Interval, y: Interval) -> Int
             Sub(k1, k2) => extract(&map, k1) - extract(&map, k2),
             Mul(k1, k2) => extract(&map, k1) * extract(&map, k2),
             Neg(k) => extract(&map, k).neg(),
-            Const(cnst) => Interval {
-                start: cnst,
-                end: cnst,
-            },
+            Const(cnst) => cnst.into(),
             Square(k) => {
                 let val = extract(&map, k);
                 val * val
