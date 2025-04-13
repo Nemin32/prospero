@@ -59,8 +59,16 @@ impl Interval {
 
     pub fn sqrt(self) -> Self {
         // Since we can't square root negatives, we assume the interval must be greater or equal to zero.
-        let start = if self.start >= 0.0 {self.start.sqrt()} else {0.0};
-        let end = if self.end >= 0.0 {self.end.sqrt()} else {0.0};
+        let start = if self.start >= 0.0 {
+            self.start.sqrt()
+        } else {
+            0.0
+        };
+        let end = if self.end >= 0.0 {
+            self.end.sqrt()
+        } else {
+            0.0
+        };
 
         Self::new(start, end)
     }
@@ -99,6 +107,20 @@ impl From<Interval> for IntervalSign {
         }
 
         if val.end < 0.0 {
+            return IntervalSign::Negative;
+        }
+
+        IntervalSign::Indeterminate
+    }
+}
+
+impl From<f32> for IntervalSign {
+    fn from(value: f32) -> Self {
+        if value >= 0.0 {
+            return IntervalSign::Positive;
+        }
+
+        if value < 0.0 {
             return IntervalSign::Negative;
         }
 
@@ -183,7 +205,7 @@ impl Quadtree {
 
     pub fn get_sign(&self, insts: &[Instruction]) -> IntervalSign {
         self.sign
-            .unwrap_or_else(|| interpret_interal(insts, self.x, self.y).into())
+            .unwrap_or_else(|| interpret_interval(insts, self.x, self.y).into())
     }
 
     pub fn rectangle_size(&self, max_inteval: f32, pic_width: usize) -> Rectangle {
@@ -216,10 +238,10 @@ impl Quadtree {
                 bl: Some(bl),
                 br: Some(br),
             } => {
-                tl.draw_borders( max_inteval, buffer);
-                tr.draw_borders( max_inteval, buffer);
-                bl.draw_borders( max_inteval, buffer);
-                br.draw_borders( max_inteval, buffer);
+                tl.draw_borders(max_inteval, buffer);
+                tr.draw_borders(max_inteval, buffer);
+                bl.draw_borders(max_inteval, buffer);
+                br.draw_borders(max_inteval, buffer);
             }
             _ => {
                 let rect = self.rectangle_size(max_inteval, buffer.len());
@@ -234,7 +256,6 @@ impl Quadtree {
                     buffer[rect.y.min(len)][x] = IntervalSign::Border;
                     buffer[rect.height.min(len)][x] = IntervalSign::Border;
                 }
-
             }
         }
     }
@@ -279,7 +300,7 @@ impl Quadtree {
     }
 }
 
-pub fn interpret_interal(insts: &[Instruction], x: Interval, y: Interval) -> Interval {
+pub fn interpret_interval(insts: &[Instruction], x: Interval, y: Interval) -> Interval {
     use OpCode::*;
 
     let mut map: Vec<Interval> = Vec::with_capacity(insts.len());

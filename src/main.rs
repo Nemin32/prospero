@@ -6,7 +6,7 @@ use std::{
 };
 
 use instruction::{Instruction, generate_liveness, generate_register_mapping};
-use interval::{Interval, IntervalSign, Quadtree, interpret_interal};
+use interval::{Interval, IntervalSign, Quadtree, interpret_interval};
 use opcode::{OpCode, Value};
 use rayon::{iter, prelude::*};
 
@@ -30,7 +30,7 @@ fn interpret(instructions: &[Instruction], len: usize, x: f32, y: f32) -> f32 {
         }
     }
 
-    for (i, Instruction { out, op }) in instructions.iter().enumerate() {
+    for Instruction { out, op } in instructions.iter() {
         let value = match *op {
             VarY => y,
             VarX => x,
@@ -103,6 +103,20 @@ fn write_image_bool(pixels: Vec<Vec<bool>>) {
     }
 }
 
+fn finalize(instructions: &[Instruction], pixels: &mut [Vec<IntervalSign>], max_interval: f32) {
+    let flen = pixels.len() as f32;
+    pixels.iter_mut().enumerate().for_each(|(y, row)| {
+        row.iter_mut().enumerate().for_each(|(x, elem)| {
+            if let IntervalSign::Indeterminate = elem {
+                let x_coord = (x as f32 / flen - 0.5) * max_interval;
+                let y_coord = (y as f32 / flen - 0.5) * max_interval;
+
+                *elem = interpret(instructions, instructions.len(), x_coord, y_coord).into();
+            }
+        })
+    });
+}
+
 fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
     let mut output = OpenOptions::new()
         .write(true)
@@ -163,14 +177,16 @@ fn main() {
         }
     }
 
+    let max_interval = 1.5f32;
+
     let x = Interval {
-        start: -1.5,
-        end: 1.5,
+        start: -max_interval,
+        end: max_interval,
     };
 
     let y = Interval {
-        start: -1.5,
-        end: 1.5,
+        start: -max_interval,
+        end: max_interval,
     };
 
     let mut buffer =
@@ -188,12 +204,13 @@ fn main() {
     qt.split(&instructions);
     qt.split(&instructions);
     qt.split(&instructions);
-
+    qt.split(&instructions);
 
     // println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
 
     qt.blit(&instructions, 1.5, &mut buffer);
-    qt.draw_borders(1.5, &mut buffer);
+    finalize(&instructions, &mut buffer, max_interval);
+    // qt.draw_borders(1.5, &mut buffer);
 
     write_image_sign(buffer);
 
