@@ -65,6 +65,25 @@ pub fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
                 Square(Literal(v)) => Some(Const(v)),
                 _ => None,
             },
+            Neg(Address(addr)) => match new_insts[addr].op {
+                Neg(Literal(v)) => Some(Const(v)),
+                _ => None,
+            },
+            Min(val1, Address(addr)) => match new_insts[addr].op {
+                Min(val2, val3) if val1 == val2 => Some(Min(val1, val3)),
+                _ => None,
+            },
+            Max(val1, Address(addr)) => match new_insts[addr].op {
+                Max(val2, val3) if val1 == val2 => Some(Max(val1, val3)),
+                _ => None,
+            },
+            Min(Literal(val1), Literal(val2)) | Max(Literal(val1), Literal(val2)) => {
+                if val1 == val2 {
+                    Some(Const(val1))
+                } else {
+                    None
+                }
+            }
             _ => None,
         };
 
@@ -106,7 +125,7 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
                 unroll(instructions, k2)
             ),
             Mul(k1, k2) => format!(
-                "({} - {})",
+                "({} * {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
             ),
