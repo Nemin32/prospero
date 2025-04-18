@@ -1,21 +1,25 @@
+use std::collections::HashMap;
 use std::io::Write;
+use std::rc::Rc;
 use std::{
     fs::{self, OpenOptions},
     ops::Neg,
     sync::{Arc, RwLock},
 };
 
-use instruction::{generate_register_mapping, Instruction};
+use instruction::{Instruction, generate_register_mapping};
 use interval::{Interval, IntervalSign};
-use quadtree::Quadtree;
 use opcode::{OpCode, Value};
+use parser::{emit, hash_ast, parse, parse_lexeme, replace, Ast, Lexeme, ParseError};
+use quadtree::Quadtree;
 use rayon::{iter, prelude::*};
 
-mod quadtree;
 mod instruction;
 mod interval;
 mod opcode;
 mod optimizers;
+mod parser;
+mod quadtree;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
@@ -75,7 +79,12 @@ fn rayon_process(instructions: Vec<Instruction>, len: usize) -> Vec<Vec<bool>> {
                 .par_iter()
                 .map(|x| {
                     let insts = insts.clone();
-                    let val = interpret(&insts.read().expect("Couldn't get read lock to mutex."), len, *x, -*y);
+                    let val = interpret(
+                        &insts.read().expect("Couldn't get read lock to mutex."),
+                        len,
+                        *x,
+                        -*y,
+                    );
 
                     val.is_sign_positive()
                 })
@@ -144,11 +153,48 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
 }
 
 fn main() {
+    let input = String::from("(max (- (sqrt (+ (square x) (square y))) 1) (- 0.5 (sqrt (+ (square (- x 1)) (square y)))))");
+    let chars = input.chars().collect::<Vec<char>>();
+
+    let mut lexemes = Vec::new();
+
+    let mut start = 0;
+    loop {
+        let (lexeme, end) = parse_lexeme(&chars, start);
+        start = end;
+
+        if let Lexeme::Eof = lexeme {
+            break;
+        }
+
+        lexemes.push(lexeme);
+    }
+
+    let result = parse(&lexemes, 0);
+
+    let (ast, _) = result.unwrap();
+
+    println!("{}", ast);
+    let arc = Rc::new(ast);
+    let mut map: HashMap<String, Rc<Ast>> = HashMap::new();
+
+    hash_ast(&arc, &mut map);
+    let new_ast = replace(&arc.clone(), &map);
+    let mut instructions = Vec::new();
+    emit(&new_ast, &mut instructions);
+
+    for inst in &instructions {
+        println!("{inst}");
+    }
+
+
+
+    //return;
     // Read file
-    let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
+    // let file = fs::read_to_string("./prospero.vm").expect("File to be present.");
 
     // Parse opcodes
-    let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
+    // let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
     let instructions = optimizers::optimize(&instructions);
     let (instructions, len) = generate_register_mapping(&instructions);
 
@@ -161,7 +207,6 @@ fn main() {
             println!("{}", elem);
         }
     }
-
 
     let max_interval = 1.5f32;
 
