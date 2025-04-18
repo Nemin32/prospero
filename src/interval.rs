@@ -152,6 +152,7 @@ pub fn interpret_interval(insts: &[Instruction], len: usize, x: Interval, y: Int
             Add(k1, k2) => extract(&map, k1) + extract(&map, k2),
             Sub(k1, k2) => extract(&map, k1) - extract(&map, k2),
             Mul(k1, k2) => extract(&map, k1) * extract(&map, k2),
+            Div(k1, k2) => extract(&map, k1) / extract(&map, k2),
             Neg(k) => extract(&map, k).neg(),
             Const(cnst) => cnst.into(),
             Square(k) => {

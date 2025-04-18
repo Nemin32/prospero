@@ -8,17 +8,18 @@ fn inline_consts(instructions: &[Instruction]) -> impl Iterator<Item = Instructi
     instructions.iter().map(|inst| {
         let extract = |other: Value| -> Value { other.extract_literal(instructions) };
         let new_op = match inst.op {
-            OpCode::VarY => VarY,
-            OpCode::VarX => VarX,
-            OpCode::Add(value, value1) => Add(extract(value), extract(value1)),
-            OpCode::Sub(value, value1) => Sub(extract(value), extract(value1)),
-            OpCode::Mul(value, value1) => Mul(extract(value), extract(value1)),
-            OpCode::Neg(value) => Neg(extract(value)),
-            OpCode::Const(val) => Const(val),
-            OpCode::Square(value) => Square(extract(value)),
-            OpCode::Sqrt(value) => Sqrt(extract(value)),
-            OpCode::Max(value, value1) => Max(extract(value), extract(value1)),
-            OpCode::Min(value, value1) => Min(extract(value), extract(value1)),
+            VarY => VarY,
+            VarX => VarX,
+            Add(value, value1) => Add(extract(value), extract(value1)),
+            Sub(value, value1) => Sub(extract(value), extract(value1)),
+            Mul(value, value1) => Mul(extract(value), extract(value1)),
+            Div(value, value1) => Div(extract(value), extract(value1)),
+            Neg(value) => Neg(extract(value)),
+            Const(val) => Const(val),
+            Square(value) => Square(extract(value)),
+            Sqrt(value) => Sqrt(extract(value)),
+            Max(value, value1) => Max(extract(value), extract(value1)),
+            Min(value, value1) => Min(extract(value), extract(value1)),
         };
 
         Instruction {
@@ -126,6 +127,11 @@ fn unroll(instructions: &[Instruction], index: Value) -> String {
             ),
             Mul(k1, k2) => format!(
                 "({} * {})",
+                unroll(instructions, k1),
+                unroll(instructions, k2)
+            ),
+            Div(k1, k2) => format!(
+                "({} / {})",
                 unroll(instructions, k1),
                 unroll(instructions, k2)
             ),

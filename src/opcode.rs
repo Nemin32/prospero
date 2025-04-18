@@ -41,6 +41,7 @@ pub enum OpCode {
     Add(Value, Value),
     Sub(Value, Value),
     Mul(Value, Value),
+    Div(Value, Value),
     // Unary
     Neg(Value),
     Const(f32),
@@ -59,6 +60,7 @@ impl Display for OpCode {
             OpCode::Add(value, value1) => format!("ADD {} {}", value, value1),
             OpCode::Sub(value, value1) => format!("SUB {} {}", value, value1),
             OpCode::Mul(value, value1) => format!("MUL {} {}", value, value1),
+            OpCode::Div(value, value1) => format!("DIV {} {}", value, value1),
             OpCode::Neg(value) => format!("NEGATE {}", value),
             OpCode::Const(cnst) => format!("CONSTANT {}", cnst),
             OpCode::Square(value) =>format!("SQUARE {}", value), 

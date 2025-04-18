@@ -63,7 +63,7 @@ fn is_separator(char: &char) -> bool {
     *char == ' ' || *char == ')' || *char == '('
 }
 
-pub fn parse_lexeme(input: &[char], start: usize) -> (Lexeme, usize) {
+fn parse_lexeme(input: &[char], start: usize) -> (Lexeme, usize) {
     if start >= input.len() {
         return (Lexeme::Eof, start);
     }
@@ -137,7 +137,7 @@ fn get(lexemes: &[Lexeme], index: usize) -> Result<Lexeme, ParseError> {
     }
 }
 
-pub fn parse(lexemes: &[Lexeme], start: usize) -> Result<(Ast, usize), ParseError> {
+fn parse(lexemes: &[Lexeme], start: usize) -> Result<(Ast, usize), ParseError> {
     if start >= lexemes.len() {
         return Err(ParseError::Eof);
     }
@@ -196,42 +196,21 @@ pub fn parse(lexemes: &[Lexeme], start: usize) -> Result<(Ast, usize), ParseErro
     Ok((ast, index))
 }
 
-pub fn hash_ast(ast: &Rc<Ast>, hashmap: &mut HashMap<String, Rc<Ast>>) {
+fn hash_ast(ast: &Rc<Ast>, hashmap: &mut HashMap<String, Rc<Ast>>) {
     let key = ast.to_string();
     if hashmap.get(&key).is_none() {
         let ast_clone = ast.clone();
         match ast_clone.as_ref() {
-            Ast::Add(ast, ast1) => {
+            Ast::Sub(ast, ast1)
+            | Ast::Add(ast, ast1)
+            | Ast::Mul(ast, ast1)
+            | Ast::Div(ast, ast1)
+            | Ast::Min(ast, ast1)
+            | Ast::Max(ast, ast1) => {
                 hash_ast(ast, hashmap);
                 hash_ast(ast1, hashmap);
             }
-            Ast::Sub(ast, ast1) => {
-                hash_ast(ast, hashmap);
-                hash_ast(ast1, hashmap);
-            }
-            Ast::Mul(ast, ast1) => {
-                hash_ast(ast, hashmap);
-                hash_ast(ast1, hashmap);
-            }
-            Ast::Div(ast, ast1) => {
-                hash_ast(ast, hashmap);
-                hash_ast(ast1, hashmap);
-            }
-            Ast::Min(ast, ast1) => {
-                hash_ast(ast, hashmap);
-                hash_ast(ast1, hashmap);
-            }
-            Ast::Max(ast, ast1) => {
-                hash_ast(ast, hashmap);
-                hash_ast(ast1, hashmap);
-            }
-            Ast::Sqrt(ast) => {
-                hash_ast(ast, hashmap);
-            }
-            Ast::Square(ast) => {
-                hash_ast(ast, hashmap);
-            }
-            Ast::Neg(ast) => {
+            Ast::Sqrt(ast) | Ast::Square(ast) | Ast::Neg(ast) => {
                 hash_ast(ast, hashmap);
             }
             _ => {}
@@ -241,64 +220,73 @@ pub fn hash_ast(ast: &Rc<Ast>, hashmap: &mut HashMap<String, Rc<Ast>>) {
     }
 }
 
-pub fn emit(ast: &Ast, container: &mut Vec<Instruction>) -> usize {
+fn emit(
+    ast: &Ast,
+    container: &mut Vec<Instruction>,
+    hashmap: &mut HashMap<String, usize>,
+) -> usize {
+    let str = ast.to_string();
+    if let Some(num) = hashmap.get(&str) {
+        return *num;
+    }
+
     let op: OpCode = match ast {
         Ast::Number(num) => OpCode::Const(*num),
         Ast::X => OpCode::VarX,
         Ast::Y => OpCode::VarY,
         Ast::Add(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Add(Value::Address(first), Value::Address(second))
         }
         Ast::Sub(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Sub(Value::Address(first), Value::Address(second))
         }
         Ast::Mul(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Mul(Value::Address(first), Value::Address(second))
         }
-        /*
-        AST::Div(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+        Ast::Div(ast, ast1) => {
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Div(Value::Address(first), Value::Address(second))
         }
-        */
         Ast::Min(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Min(Value::Address(first), Value::Address(second))
         }
         Ast::Max(ast, ast1) => {
-            let first = emit(ast.as_ref(), container);
-            let second = emit(ast1.as_ref(), container);
+            let first = emit(ast.as_ref(), container, hashmap);
+            let second = emit(ast1.as_ref(), container, hashmap);
 
             OpCode::Max(Value::Address(first), Value::Address(second))
         }
 
         Ast::Sqrt(ast) => {
-            let index = emit(ast.as_ref(), container);
+            let index = emit(ast.as_ref(), container, hashmap);
             OpCode::Sqrt(Value::Address(index))
         }
         Ast::Square(ast) => {
-            let index = emit(ast.as_ref(), container);
+            let index = emit(ast.as_ref(), container, hashmap);
             OpCode::Square(Value::Address(index))
         }
         Ast::Neg(ast) => {
-            let index = emit(ast.as_ref(), container);
+            let index = emit(ast.as_ref(), container, hashmap);
             OpCode::Neg(Value::Address(index))
         }
         _ => panic!("Div is not handled"),
     };
+
+    hashmap.insert(str, container.len());
 
     container.push(Instruction {
         out: container.len(),
@@ -309,10 +297,13 @@ pub fn emit(ast: &Ast, container: &mut Vec<Instruction>) -> usize {
 }
 
 fn get_or_replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Rc<Ast> {
-    hashmap.get(&ast.to_string()).map(|e| e.to_owned()).unwrap_or_else(||Rc::new(replace(ast, hashmap)))
+    hashmap
+        .get(&ast.to_string())
+        .map(|e| e.to_owned())
+        .unwrap_or_else(|| Rc::new(replace(ast, hashmap)))
 }
 
-pub fn replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Ast {
+fn replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Ast {
     match ast {
         Ast::Add(ast, ast1) => {
             let left = get_or_replace(ast, hashmap);
@@ -343,4 +334,37 @@ pub fn replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Ast {
         Ast::Neg(ast) => Ast::Neg(get_or_replace(ast, hashmap)),
         ast => ast.clone(),
     }
+}
+
+pub fn generate_bytecode(input: String) -> Vec<Instruction> {
+    let chars = input.chars().collect::<Vec<char>>();
+
+    let mut lexemes = Vec::new();
+
+    let mut start = 0;
+    loop {
+        let (lexeme, end) = parse_lexeme(&chars, start);
+        start = end;
+
+        if let Lexeme::Eof = lexeme {
+            break;
+        }
+
+        lexemes.push(lexeme);
+    }
+
+    let result = parse(&lexemes, 0);
+
+    let (ast, _) = result.expect("Expected Ast to be present");
+
+    println!("{}", ast);
+    let arc = Rc::new(ast);
+    let mut map: HashMap<String, Rc<Ast>> = HashMap::new();
+
+    hash_ast(&arc, &mut map);
+    let new_ast = replace(&arc.clone(), &map);
+    let mut instructions = Vec::new();
+    emit(&new_ast, &mut instructions, &mut HashMap::new());
+
+    instructions
 }
