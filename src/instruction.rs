@@ -8,17 +8,22 @@ pub struct Instruction {
     pub op: OpCode,
 }
 
+fn hex_to_usize(hex: &str) -> usize {
+    usize::from_str_radix(hex.trim_start_matches("_"), 16)
+        .expect("Expected output to be a hex number that starts with '_'.")
+}
+
 impl From<&str> for Instruction {
     fn from(value: &str) -> Self {
         use OpCode::*;
 
         let parts = value.split(" ").collect::<Vec<_>>();
-        let out = usize::from_str_radix(parts[0].trim_start_matches("_"), 16).unwrap();
+        let out = hex_to_usize(parts[0]);
         let code = parts[1];
         let args = &parts[2..];
 
         if code == "const" {
-            let arg = args[0].parse::<f32>().unwrap();
+            let arg = args[0].parse::<f32>().expect("Expected const float.");
             return Instruction {
                 out,
                 op: Const(arg),
@@ -27,7 +32,7 @@ impl From<&str> for Instruction {
 
         let args = args
             .iter()
-            .map(|e| Value::Address(usize::from_str_radix(e.trim_start_matches("_"), 16).unwrap()))
+            .map(|e| Value::Address(hex_to_usize(e)))
             .collect::<Vec<Value>>();
 
         let op = match code {
@@ -114,37 +119,42 @@ fn clean_registers(mapping: &mut Mapping, current_index: usize, before_binding: 
 
 pub fn generate_register_mapping(insts: &[Instruction]) -> (Vec<Instruction>, usize) {
     let mut mapping: Mapping = vec![Some(insts.len())];
-    let new_insts: Vec<Instruction> = insts.iter().rev().map(|elem| {
-        clean_registers(&mut mapping, elem.out, true);
+    let new_insts: Vec<Instruction> = insts
+        .iter()
+        .rev()
+        .map(|elem| {
+            clean_registers(&mut mapping, elem.out, true);
 
-        let new_out = get_or_add_ssa(&mut mapping, elem.out);
+            let new_out = get_or_add_ssa(&mut mapping, elem.out);
 
-        clean_registers(&mut mapping, elem.out, false);
+            clean_registers(&mut mapping, elem.out, false);
 
-        let mut add_register = |value: Value| -> Value {
-            match value {
-                Value::Address(addr) => {
-                    Value::Address(get_or_add_ssa(&mut mapping, addr))
-                },
-                lit => lit
+            let mut add_register = |value: Value| -> Value {
+                match value {
+                    Value::Address(addr) => Value::Address(get_or_add_ssa(&mut mapping, addr)),
+                    lit => lit,
+                }
+            };
+
+            use OpCode::*;
+            let new_op = match elem.op {
+                OpCode::Add(value, value1) => Add(add_register(value), add_register(value1)),
+                OpCode::Sub(value, value1) => Sub(add_register(value), add_register(value1)),
+                OpCode::Mul(value, value1) => Mul(add_register(value), add_register(value1)),
+                OpCode::Neg(value) => Neg(add_register(value)),
+                OpCode::Square(value) => Square(add_register(value)),
+                OpCode::Sqrt(value) => Sqrt(add_register(value)),
+                OpCode::Max(value, value1) => Max(add_register(value), add_register(value1)),
+                OpCode::Min(value, value1) => Min(add_register(value), add_register(value1)),
+                op => op,
+            };
+
+            Instruction {
+                out: new_out,
+                op: new_op,
             }
-        };
-
-        use OpCode::*;
-        let new_op = match elem.op {
-            OpCode::Add(value, value1) => Add(add_register(value), add_register(value1)),
-            OpCode::Sub(value, value1) => Sub(add_register(value), add_register(value1)),
-            OpCode::Mul(value, value1) => Mul(add_register(value), add_register(value1)),
-            OpCode::Neg(value) => Neg(add_register(value)),
-            OpCode::Square(value) => Square(add_register(value)),
-            OpCode::Sqrt(value) => Sqrt(add_register(value)),
-            OpCode::Max(value, value1) => Max(add_register(value), add_register(value1)),
-            OpCode::Min(value, value1) => Min(add_register(value), add_register(value1)),
-            op => op,
-        };
-
-        Instruction { out: new_out, op: new_op }
-    }).collect();
+        })
+        .collect();
 
     (new_insts.into_iter().rev().collect(), mapping.len())
 }

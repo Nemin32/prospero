@@ -75,7 +75,7 @@ fn rayon_process(instructions: Vec<Instruction>, len: usize) -> Vec<Vec<bool>> {
                 .par_iter()
                 .map(|x| {
                     let insts = insts.clone();
-                    let val = interpret(&insts.read().unwrap(), len, *x, -*y);
+                    let val = interpret(&insts.read().expect("Couldn't get read lock to mutex."), len, *x, -*y);
 
                     val.is_sign_positive()
                 })
@@ -92,7 +92,7 @@ fn write_image_bool(pixels: Vec<Vec<bool>>) {
         .create(true)
         .truncate(true)
         .open("./output.pbm")
-        .unwrap();
+        .expect("Can't open output file.");
 
     write!(output, "P1 {} {} ", RESOLUTION * 2 + 1, RESOLUTION * 2).unwrap();
 
@@ -125,7 +125,7 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
         .create(true)
         .truncate(true)
         .open("./output.pgm")
-        .unwrap();
+        .expect("Can't open output file.");
 
     write!(output, "P2 {} {} 3 ", RESOLUTION, RESOLUTION).unwrap();
 
@@ -152,11 +152,11 @@ fn main() {
     let instructions = optimizers::optimize(&instructions);
     let (instructions, len) = generate_register_mapping(&instructions);
 
-    //println!("Len: {}", len);
+    println!("Len: {}", len);
 
     //let len = instructions.len();
 
-    if true {
+    if false {
         for elem in &instructions {
             println!("{}", elem);
         }

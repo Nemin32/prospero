@@ -166,5 +166,5 @@ pub fn interpret_interval(insts: &[Instruction], len: usize, x: Interval, y: Int
         map[*out] = value;
     }
 
-    *map.first().unwrap()
+    *map.first().expect("Interval interp is empty.")
 }

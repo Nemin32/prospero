@@ -1,4 +1,7 @@
-use crate::{instruction::Instruction, interval::{interpret_interval, Interval, IntervalSign}};
+use crate::{
+    instruction::Instruction,
+    interval::{Interval, IntervalSign, interpret_interval},
+};
 
 #[derive(Clone, Debug)]
 pub struct Quadtree {
@@ -43,35 +46,33 @@ impl Quadtree {
             return;
         }
 
-        match self {
-            Quadtree {
-                x: _,
-                y: _,
-                sign: _,
-                tl: Some(tl),
-                tr: Some(tr),
-                bl: Some(bl),
-                br: Some(br),
-            } => {
-                tl.split(insts, len);
-                tr.split(insts, len);
-                bl.split(insts, len);
-                br.split(insts, len);
-            }
-            _ => {
-                let xhalf = (self.x.end - self.x.start) / 2.0;
-                let yhalf = (self.y.end - self.y.start) / 2.0;
+        if let Quadtree {
+            x: _,
+            y: _,
+            sign: _,
+            tl: Some(tl),
+            tr: Some(tr),
+            bl: Some(bl),
+            br: Some(br),
+        } = self
+        {
+            tl.split(insts, len);
+            tr.split(insts, len);
+            bl.split(insts, len);
+            br.split(insts, len);
+        } else {
+            let xhalf = (self.x.end - self.x.start) / 2.0;
+            let yhalf = (self.y.end - self.y.start) / 2.0;
 
-                let top_y = Interval::new(self.y.start, self.y.start + yhalf);
-                let bottom_y = Interval::new(self.y.start + yhalf, self.y.end);
-                let left_x = Interval::new(self.x.start, self.x.start + xhalf);
-                let right_x = Interval::new(self.x.start + xhalf, self.x.end);
+            let top_y = Interval::new(self.y.start, self.y.start + yhalf);
+            let bottom_y = Interval::new(self.y.start + yhalf, self.y.end);
+            let left_x = Interval::new(self.x.start, self.x.start + xhalf);
+            let right_x = Interval::new(self.x.start + xhalf, self.x.end);
 
-                self.tl = Some(Box::new(Quadtree::new(left_x, top_y)));
-                self.tr = Some(Box::new(Quadtree::new(right_x, top_y)));
-                self.bl = Some(Box::new(Quadtree::new(left_x, bottom_y)));
-                self.br = Some(Box::new(Quadtree::new(right_x, bottom_y)));
-            }
+            self.tl = Some(Box::new(Quadtree::new(left_x, top_y)));
+            self.tr = Some(Box::new(Quadtree::new(right_x, top_y)));
+            self.bl = Some(Box::new(Quadtree::new(left_x, bottom_y)));
+            self.br = Some(Box::new(Quadtree::new(right_x, bottom_y)));
         }
     }
 
@@ -101,34 +102,32 @@ impl Quadtree {
 
     #[allow(dead_code)]
     pub fn draw_borders(&self, max_inteval: f32, buffer: &mut Vec<Vec<IntervalSign>>) {
-        match self {
-            Quadtree {
-                x: _,
-                y: _,
-                sign: _,
-                tl: Some(tl),
-                tr: Some(tr),
-                bl: Some(bl),
-                br: Some(br),
-            } => {
-                tl.draw_borders(max_inteval, buffer);
-                tr.draw_borders(max_inteval, buffer);
-                bl.draw_borders(max_inteval, buffer);
-                br.draw_borders(max_inteval, buffer);
+        if let Quadtree {
+            x: _,
+            y: _,
+            sign: _,
+            tl: Some(tl),
+            tr: Some(tr),
+            bl: Some(bl),
+            br: Some(br),
+        } = self
+        {
+            tl.draw_borders(max_inteval, buffer);
+            tr.draw_borders(max_inteval, buffer);
+            bl.draw_borders(max_inteval, buffer);
+            br.draw_borders(max_inteval, buffer);
+        } else {
+            let rect = self.rectangle_size(max_inteval, buffer.len());
+            let len = buffer.len() - 1;
+
+            for row in &mut buffer[rect.y.max(0)..rect.height.min(len)] {
+                row[rect.x.min(len)] = IntervalSign::Border;
+                row[rect.width.min(len)] = IntervalSign::Border;
             }
-            _ => {
-                let rect = self.rectangle_size(max_inteval, buffer.len());
-                let len = buffer.len() - 1;
 
-                for row in &mut buffer[rect.y.max(0)..rect.height.min(len)] {
-                    row[rect.x.min(len)] = IntervalSign::Border;
-                    row[rect.width.min(len)] = IntervalSign::Border;
-                }
-
-                for x in rect.x.max(0)..rect.width.min(len) {
-                    buffer[rect.y.min(len)][x] = IntervalSign::Border;
-                    buffer[rect.height.min(len)][x] = IntervalSign::Border;
-                }
+            for x in rect.x.max(0)..rect.width.min(len) {
+                buffer[rect.y.min(len)][x] = IntervalSign::Border;
+                buffer[rect.height.min(len)][x] = IntervalSign::Border;
             }
         }
     }
@@ -140,36 +139,34 @@ impl Quadtree {
         max_inteval: f32,
         buffer: &mut Vec<Vec<IntervalSign>>,
     ) {
-        match self {
-            Quadtree {
-                x: _,
-                y: _,
-                sign: _,
-                tl: Some(tl),
-                tr: Some(tr),
-                bl: Some(bl),
-                br: Some(br),
-            } => {
-                tl.blit(insts, len, max_inteval, buffer);
-                tr.blit(insts, len, max_inteval, buffer);
-                bl.blit(insts, len, max_inteval, buffer);
-                br.blit(insts, len, max_inteval, buffer);
-            }
-            _ => {
-                let sign = self.get_sign(insts, len);
-                let rect = self.rectangle_size(max_inteval, buffer.len());
+        if let Quadtree {
+            x: _,
+            y: _,
+            sign: _,
+            tl: Some(tl),
+            tr: Some(tr),
+            bl: Some(bl),
+            br: Some(br),
+        } = self
+        {
+            tl.blit(insts, len, max_inteval, buffer);
+            tr.blit(insts, len, max_inteval, buffer);
+            bl.blit(insts, len, max_inteval, buffer);
+            br.blit(insts, len, max_inteval, buffer);
+        } else {
+            let sign = self.get_sign(insts, len);
+            let rect = self.rectangle_size(max_inteval, buffer.len());
 
-                buffer
-                    .iter_mut()
-                    .skip(rect.y)
-                    .take(rect.height - rect.y)
-                    .for_each(|elem| {
-                        elem.iter_mut()
-                            .skip(rect.x)
-                            .take(rect.width - rect.x)
-                            .for_each(|inner| *inner = sign);
-                    });
-            }
+            buffer
+                .iter_mut()
+                .skip(rect.y)
+                .take(rect.height - rect.y)
+                .for_each(|elem| {
+                    elem.iter_mut()
+                        .skip(rect.x)
+                        .take(rect.width - rect.x)
+                        .for_each(|inner| *inner = sign);
+                });
         }
     }
 }
