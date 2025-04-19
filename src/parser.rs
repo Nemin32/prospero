@@ -224,65 +224,44 @@ fn emit(
     ast: &Ast,
     container: &mut Vec<Instruction>,
     hashmap: &mut HashMap<String, usize>,
-) -> usize {
+) -> Value {
     let str = ast.to_string();
     if let Some(num) = hashmap.get(&str) {
-        return *num;
+        return Value::Address(*num);
     }
 
     let op: OpCode = match ast {
         Ast::Number(num) => OpCode::Const(*num),
         Ast::X => OpCode::VarX,
         Ast::Y => OpCode::VarY,
-        Ast::Add(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
+        Ast::Add(ast, ast1) => OpCode::Add(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
+        Ast::Sub(ast, ast1) => OpCode::Sub(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
+        Ast::Mul(ast, ast1) => OpCode::Mul(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
+        Ast::Div(ast, ast1) => OpCode::Div(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
+        Ast::Min(ast, ast1) => OpCode::Min(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
+        Ast::Max(ast, ast1) => OpCode::Max(
+            emit(ast.as_ref(), container, hashmap),
+            emit(ast1.as_ref(), container, hashmap),
+        ),
 
-            OpCode::Add(Value::Address(first), Value::Address(second))
-        }
-        Ast::Sub(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
-
-            OpCode::Sub(Value::Address(first), Value::Address(second))
-        }
-        Ast::Mul(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
-
-            OpCode::Mul(Value::Address(first), Value::Address(second))
-        }
-        Ast::Div(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
-
-            OpCode::Div(Value::Address(first), Value::Address(second))
-        }
-        Ast::Min(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
-
-            OpCode::Min(Value::Address(first), Value::Address(second))
-        }
-        Ast::Max(ast, ast1) => {
-            let first = emit(ast.as_ref(), container, hashmap);
-            let second = emit(ast1.as_ref(), container, hashmap);
-
-            OpCode::Max(Value::Address(first), Value::Address(second))
-        }
-
-        Ast::Sqrt(ast) => {
-            let index = emit(ast.as_ref(), container, hashmap);
-            OpCode::Sqrt(Value::Address(index))
-        }
-        Ast::Square(ast) => {
-            let index = emit(ast.as_ref(), container, hashmap);
-            OpCode::Square(Value::Address(index))
-        }
-        Ast::Neg(ast) => {
-            let index = emit(ast.as_ref(), container, hashmap);
-            OpCode::Neg(Value::Address(index))
-        }
+        Ast::Sqrt(ast) => OpCode::Sqrt(emit(ast.as_ref(), container, hashmap)),
+        Ast::Square(ast) => OpCode::Square(emit(ast.as_ref(), container, hashmap)),
+        Ast::Neg(ast) => OpCode::Neg(emit(ast.as_ref(), container, hashmap)),
     };
 
     hashmap.insert(str, container.len());
@@ -292,10 +271,10 @@ fn emit(
         op,
     });
 
-    container.len() - 1
+    Value::Address(container.len() - 1)
 }
 
-fn get_or_replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Rc<Ast> {
+fn replace_sub(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Rc<Ast> {
     hashmap
         .get(&ast.to_string())
         .map(|e| e.to_owned())
@@ -304,33 +283,13 @@ fn get_or_replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Rc<Ast> {
 
 fn replace(ast: &Ast, hashmap: &HashMap<String, Rc<Ast>>) -> Ast {
     match ast {
-        Ast::Add(ast, ast1) => {
-            let left = get_or_replace(ast, hashmap);
-            let right = get_or_replace(ast1, hashmap);
-
-            Ast::Add(left, right)
-        }
-        Ast::Sub(ast, ast1) => {
-            let left = get_or_replace(ast, hashmap);
-            let right = get_or_replace(ast1, hashmap);
-
-            Ast::Sub(left, right)
-        }
-        Ast::Mul(ast, ast1) => {
-            let left = get_or_replace(ast, hashmap);
-            let right = get_or_replace(ast1, hashmap);
-
-            Ast::Mul(left, right)
-        }
-        Ast::Div(ast, ast1) => {
-            let left = get_or_replace(ast, hashmap);
-            let right = get_or_replace(ast1, hashmap);
-
-            Ast::Div(left, right)
-        }
-        Ast::Sqrt(ast) => Ast::Sqrt(get_or_replace(ast, hashmap)),
-        Ast::Square(ast) => Ast::Square(get_or_replace(ast, hashmap)),
-        Ast::Neg(ast) => Ast::Neg(get_or_replace(ast, hashmap)),
+        Ast::Add(ast, ast1) => Ast::Add(replace_sub(ast, hashmap), replace_sub(ast1, hashmap)),
+        Ast::Sub(ast, ast1) => Ast::Sub(replace_sub(ast, hashmap), replace_sub(ast1, hashmap)),
+        Ast::Mul(ast, ast1) => Ast::Mul(replace_sub(ast, hashmap), replace_sub(ast1, hashmap)),
+        Ast::Div(ast, ast1) => Ast::Div(replace_sub(ast, hashmap), replace_sub(ast1, hashmap)),
+        Ast::Sqrt(ast) => Ast::Sqrt(replace_sub(ast, hashmap)),
+        Ast::Square(ast) => Ast::Square(replace_sub(ast, hashmap)),
+        Ast::Neg(ast) => Ast::Neg(replace_sub(ast, hashmap)),
         ast => ast.clone(),
     }
 }
@@ -356,7 +315,6 @@ pub fn generate_bytecode(input: String) -> Vec<Instruction> {
 
     let (ast, _) = result.expect("Expected Ast to be present");
 
-    println!("{}", ast);
     let arc = Rc::new(ast);
     let mut map: HashMap<String, Rc<Ast>> = HashMap::new();
 

@@ -104,6 +104,61 @@ pub fn optimize(instructions: &[Instruction]) -> Vec<Instruction> {
     }
 }
 
+pub fn prune(instructions: &[Instruction]) -> Vec<Instruction> {
+    let len = instructions.len() - 1;
+
+    let mut inst_map: Vec<(bool, &Instruction)> = instructions
+        .iter()
+        .map(|inst| (false, inst))
+        .collect();
+
+    inst_map[len].0 = true;
+
+    for i in (0..=len).rev() {
+        let valid = inst_map[i].0;
+        let op = inst_map[i].1.op;
+
+        if valid {
+            use OpCode::*;
+
+            match op {
+                Add(value, value1)
+                | Sub(value, value1)
+                | Mul(value, value1)
+                | Div(value, value1)
+                | Min(value, value1)
+                | Max(value, value1) => {
+                    if let Value::Address(addr) = value {
+                        inst_map[addr].0 = true;
+                    }
+                    if let Value::Address(addr1) = value1 {
+                        inst_map[addr1].0 = true;
+                    }
+                }
+
+                Neg(Value::Address(value))
+                | Square(Value::Address(value))
+                | Sqrt(Value::Address(value)) => {
+                    inst_map[value].0 = true;
+                }
+                _ => {}
+            };
+        }
+    }
+
+    for (valid, inst) in &inst_map {
+        println!("{} = {}", if *valid {"Y"} else {"N"}, inst);
+    }
+
+    let new_insts = inst_map
+        .iter()
+        .filter(|(b, _)| *b)
+        .map(|(_, inst)| *inst.to_owned())
+        .collect();
+
+    new_insts
+}
+
 /// Takes in a list of instructions and generates its mathematical representation recursively.
 /// Not much point to it beyond being curious what the actual equation looks like.
 #[allow(dead_code)]

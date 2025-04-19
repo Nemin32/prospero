@@ -5,21 +5,22 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use generators::{difference, circle};
+use generators::{circle, difference, rectange, union};
 use instruction::{Instruction, generate_register_mapping};
 use interval::{Interval, IntervalSign};
 use opcode::{OpCode, Value};
+use optimizers::prune;
 use parser::generate_bytecode;
 use quadtree::Quadtree;
 use rayon::{iter, prelude::*};
 
+mod generators;
 mod instruction;
 mod interval;
 mod opcode;
 mod optimizers;
 mod parser;
 mod quadtree;
-mod generators;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
@@ -156,7 +157,7 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
 fn main() {
     //let input = String::from("(max (- (sqrt (+ (square x) (square y))) 1) (- 0.5 (sqrt (+ (square (- x 1)) (square y)))))");
 
-
+    /*
     let pos = [
         // Upper half
         (-0.775, 0.7),
@@ -190,16 +191,25 @@ fn main() {
     let input = difference(input, circle(-1.0, 0.0, 0.5));
     let input = pos.iter().fold(input, |acc, elem| difference(acc, elem.to_owned()));
     let input = pos2.iter().fold(input, |acc, elem| difference(acc, elem.to_owned()));
+    */
 
+    const S: f32 = 0.1 / 8.0;
+    let M = [
+        (0, 0, 2, 8),
+        (5, 0, 2, 8),
+        (2, 4, 1, 3),
+        (3, 3, 1, 3),
+        (4, 4, 1, 3),
+    ]
+    .map(|(x, y, w, h)| rectange(x as f32 * S, y as f32 * S, w as f32 * S, h as f32 * S))
+    .into_iter()
+    .reduce(|acc, elem| union(acc.to_owned(), elem.to_owned()))
+    .map(|e| e.to_owned())
+    .expect("Expected input string");
+
+    let input = M; //rectange(-0.5, 0.0, 1.0, 1.0);
     println!("{input}");
-
     let instructions = generate_bytecode(input);
-
-    for inst in &instructions {
-        println!("{inst}");
-    }
-
-
 
     //return;
     // Read file
@@ -207,10 +217,13 @@ fn main() {
 
     // Parse opcodes
     // let instructions: Vec<Instruction> = file.par_lines().map(|e| e.into()).collect();
+    println!("Pre-opt Len: {}", instructions.len());
     let instructions = optimizers::optimize(&instructions);
+    // Doesn't work for some reason.
+    // let instructions = prune(&instructions);
     let (instructions, len) = generate_register_mapping(&instructions);
 
-    println!("Len: {}", len);
+    println!("Len: {}", instructions.len());
 
     //let len = instructions.len();
 
