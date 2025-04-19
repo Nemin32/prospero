@@ -106,9 +106,12 @@ fn parse_lexeme(input: &[char], start: usize) -> (Lexeme, usize) {
         other => Number(
             other
                 .parse()
+                .map(|num: f32| (num * 10000.0).round() / 10000.0)
                 .unwrap_or_else(|_| panic!("Expected to find float, got {}", other)),
         ),
     };
+
+    println!("{:?}", &lexeme);
 
     (lexeme, end)
 }
@@ -143,7 +146,7 @@ fn parse(lexemes: &[Lexeme], start: usize) -> Result<(Ast, usize), ParseError> {
     }
 
     if let Lexeme::Number(num) = lexemes[start] {
-        return Ok((Ast::Number(num), start + 1));
+        return Ok((Ast::Number(num), start + 1))
     } else if let Lexeme::X = lexemes[start] {
         return Ok((Ast::X, start + 1));
     } else if let Lexeme::Y = lexemes[start] {

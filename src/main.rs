@@ -5,9 +5,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use generators::{circle, difference, rectange, union};
+use generators::{circle, difference, rectangle, union};
 use instruction::{Instruction, generate_register_mapping};
 use interval::{Interval, IntervalSign};
+use letters::draw_text;
 use opcode::{OpCode, Value};
 use optimizers::prune;
 use parser::generate_bytecode;
@@ -21,6 +22,7 @@ mod opcode;
 mod optimizers;
 mod parser;
 mod quadtree;
+mod letters;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
@@ -193,22 +195,13 @@ fn main() {
     let input = pos2.iter().fold(input, |acc, elem| difference(acc, elem.to_owned()));
     */
 
-    const S: f32 = 0.1 / 8.0;
-    let M = [
-        (0, 0, 2, 8),
-        (5, 0, 2, 8),
-        (2, 4, 1, 3),
-        (3, 3, 1, 3),
-        (4, 4, 1, 3),
-    ]
-    .map(|(x, y, w, h)| rectange(x as f32 * S, y as f32 * S, w as f32 * S, h as f32 * S))
-    .into_iter()
-    .reduce(|acc, elem| union(acc.to_owned(), elem.to_owned()))
-    .map(|e| e.to_owned())
-    .expect("Expected input string");
+    let scale = 0.1;
+    let input = [
+        draw_text("mondottam ember,".to_string(), -1.2, 0.85, scale),
+        draw_text("kűzdj és".to_string(), -1.2, 0.7, scale),
+        draw_text("bízva bízzál!".to_string(), -1.2, 0.55, scale),
+    ].into_iter().reduce(union).expect("Input");
 
-    let input = M; //rectange(-0.5, 0.0, 1.0, 1.0);
-    println!("{input}");
     let instructions = generate_bytecode(input);
 
     //return;

@@ -1,4 +1,4 @@
-use std::fmt::{write, Display};
+use std::fmt::{Display, write};
 
 pub fn intersection(first: String, second: String) -> String {
     format!("(min {first} {second})")
@@ -14,17 +14,27 @@ pub fn difference(first: String, second: String) -> String {
 
 enum Var {
     X,
-    Y
+    Y,
 }
 
 impl Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {Self::X => "x", Self::Y => "y"})
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::X => "x",
+                Self::Y => "y",
+            }
+        )
     }
 }
 
 fn normalize_sub(var: Var, num: f32) -> String {
-    if num == 0.0 {return var.to_string()}
+    // var - num
+    if num == 0.0 {
+        return var.to_string();
+    }
 
     if num.is_sign_negative() {
         format!("(+ {var} {})", num.abs())
@@ -34,13 +44,19 @@ fn normalize_sub(var: Var, num: f32) -> String {
 }
 
 fn normalize_sub_r(num: f32, var: Var) -> String {
-    if num == 0.0 {return var.to_string()}
-
-    if num.is_sign_negative() {
-        format!("(+ {} {var})", num.abs())
-    } else {
-        format!("(- {num} {var})")
+    // num - var
+    if num == 0.0 {
+        return format!("(- {var})");
     }
+
+    format!(
+        "(- {} {var})",
+        if num.is_sign_negative() {
+            format!("(- {})", num.abs())
+        } else {
+            num.to_string()
+        }
+    )
 }
 
 pub fn circle(x: f32, y: f32, rad: f32) -> String {
@@ -67,17 +83,12 @@ pub fn circle(x: f32, y: f32, rad: f32) -> String {
     format!("(- (+ {x_pos} {y_pos}) {rad})")
 }
 
-
-pub fn rectange(x: f32, y: f32, w: f32, h: f32) -> String {
+pub fn rectangle(x: f32, y: f32, w: f32, h: f32) -> String {
     let x_left = normalize_sub(Var::X, x);
-    let x_right = normalize_sub_r(w+x, Var::X);
+    let x_right = normalize_sub_r(w + x, Var::X);
 
     let y_top = normalize_sub(Var::Y, y);
-    let y_bottom = normalize_sub_r(h+y, Var::Y);
+    let y_bottom = normalize_sub_r(h + y, Var::Y);
 
-
-    intersection(
-    intersection(x_left, x_right),
-    intersection(y_top, y_bottom)
-    )
+    intersection(intersection(x_left, x_right), intersection(y_top, y_bottom))
 }
