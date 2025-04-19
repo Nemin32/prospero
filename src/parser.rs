@@ -283,7 +283,6 @@ fn emit(
             let index = emit(ast.as_ref(), container, hashmap);
             OpCode::Neg(Value::Address(index))
         }
-        _ => panic!("Div is not handled"),
     };
 
     hashmap.insert(str, container.len());

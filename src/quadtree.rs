@@ -136,7 +136,7 @@ impl Quadtree {
         &self,
         insts: &[Instruction],
         len: usize,
-        max_inteval: f32,
+        max_interval: f32,
         buffer: &mut Vec<Vec<IntervalSign>>,
     ) {
         if let Quadtree {
@@ -149,13 +149,13 @@ impl Quadtree {
             br: Some(br),
         } = self
         {
-            tl.blit(insts, len, max_inteval, buffer);
-            tr.blit(insts, len, max_inteval, buffer);
-            bl.blit(insts, len, max_inteval, buffer);
-            br.blit(insts, len, max_inteval, buffer);
+            tl.blit(insts, len, max_interval, buffer);
+            tr.blit(insts, len, max_interval, buffer);
+            bl.blit(insts, len, max_interval, buffer);
+            br.blit(insts, len, max_interval, buffer);
         } else {
             let sign = self.get_sign(insts, len);
-            let rect = self.rectangle_size(max_inteval, buffer.len());
+            let rect = self.rectangle_size(max_interval, buffer.len());
 
             buffer
                 .iter_mut()
