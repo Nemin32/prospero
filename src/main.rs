@@ -1,16 +1,15 @@
-use std::collections::HashMap;
 use std::io::Write;
-use std::rc::Rc;
 use std::{
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     ops::Neg,
     sync::{Arc, RwLock},
 };
 
+use generators::{difference, circle};
 use instruction::{Instruction, generate_register_mapping};
 use interval::{Interval, IntervalSign};
 use opcode::{OpCode, Value};
-use parser::{emit, hash_ast, parse, parse_lexeme, replace, Ast, Lexeme, ParseError};
+use parser::generate_bytecode;
 use quadtree::Quadtree;
 use rayon::{iter, prelude::*};
 
@@ -20,6 +19,7 @@ mod opcode;
 mod optimizers;
 mod parser;
 mod quadtree;
+mod generators;
 
 const RESOLUTION: u16 = 1024;
 const DELTA: f32 = 1.0 / (RESOLUTION as f32);
@@ -43,6 +43,7 @@ fn interpret(instructions: &[Instruction], len: usize, x: f32, y: f32) -> f32 {
             Add(k1, k2) => extract(&map, k1) + extract(&map, k2),
             Sub(k1, k2) => extract(&map, k1) - extract(&map, k2),
             Mul(k1, k2) => extract(&map, k1) * extract(&map, k2),
+            Div(k1, k2) => extract(&map, k1) / extract(&map, k2),
             Neg(k) => extract(&map, k).neg(),
             Const(cnst) => cnst,
             Square(k) => extract(&map, k).powi(2),
@@ -142,8 +143,8 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
         let line = row
             .par_iter()
             .map(|e| match *e {
-                IntervalSign::Border => "0",
-                IntervalSign::Negative => "1",
+                IntervalSign::Border => "1",
+                IntervalSign::Negative => "0",
                 IntervalSign::Indeterminate => "2",
                 IntervalSign::Positive => "3",
             })
@@ -153,35 +154,46 @@ fn write_image_sign(pixels: Vec<Vec<IntervalSign>>) {
 }
 
 fn main() {
-    let input = String::from("(max (- (sqrt (+ (square x) (square y))) 1) (- 0.5 (sqrt (+ (square (- x 1)) (square y)))))");
-    let chars = input.chars().collect::<Vec<char>>();
+    //let input = String::from("(max (- (sqrt (+ (square x) (square y))) 1) (- 0.5 (sqrt (+ (square (- x 1)) (square y)))))");
 
-    let mut lexemes = Vec::new();
 
-    let mut start = 0;
-    loop {
-        let (lexeme, end) = parse_lexeme(&chars, start);
-        start = end;
+    let pos = [
+        // Upper half
+        (-0.775, 0.7),
+        (-0.5, 0.5),
+        (0.0, 0.75),
+        (0.5, 0.5),
+        (0.775, 0.7),
+        // Lower half
+        (-0.65, -0.9),
+        (-0.35, -1.0),
+        (0.0, -1.05),
+        (0.35, -1.0),
+        (0.65, -0.9),
 
-        if let Lexeme::Eof = lexeme {
-            break;
-        }
+    ].map(|(x,y)| circle(x,y, 0.025));
 
-        lexemes.push(lexeme);
-    }
+    let pos2 = [
+        (0.0,0.0),
+        (-0.15, -0.25),
+        (0.15, -0.25),
+        //
 
-    let result = parse(&lexemes, 0);
+        (-0.05, -0.125),
+        (0.05, -0.125),
+        (0.0, -0.2),
 
-    let (ast, _) = result.unwrap();
+    ].map(|(x,y)| circle(x, y, 0.001));
 
-    println!("{}", ast);
-    let arc = Rc::new(ast);
-    let mut map: HashMap<String, Rc<Ast>> = HashMap::new();
 
-    hash_ast(&arc, &mut map);
-    let new_ast = replace(&arc.clone(), &map);
-    let mut instructions = Vec::new();
-    emit(&new_ast, &mut instructions);
+    let input = difference(circle(0.0,0.0, 1.0), circle(1.0,0.0, 0.5));
+    let input = difference(input, circle(-1.0, 0.0, 0.5));
+    let input = pos.iter().fold(input, |acc, elem| difference(acc, elem.to_owned()));
+    let input = pos2.iter().fold(input, |acc, elem| difference(acc, elem.to_owned()));
+
+    println!("{input}");
+
+    let instructions = generate_bytecode(input);
 
     for inst in &instructions {
         println!("{inst}");
@@ -208,7 +220,7 @@ fn main() {
         }
     }
 
-    let max_interval = 1.5f32;
+    let max_interval = 1.25f32;
 
     let x = Interval {
         start: -max_interval,
@@ -231,9 +243,9 @@ fn main() {
 
     // println!("{:?}, {:?}", qt, qt.rectangle_size(1.5, RESOLUTION as usize));
 
-    qt.blit(&instructions, len, 1.5, &mut buffer);
+    qt.blit(&instructions, len, max_interval, &mut buffer);
     finalize(&instructions, &mut buffer, max_interval);
-    //qt.draw_borders(1.5, &mut buffer);
+    //qt.draw_borders(max_interval, &mut buffer);
 
     write_image_sign(buffer);
 
